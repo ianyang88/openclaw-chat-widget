@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw 本地连接测试</title>
+    <link rel="stylesheet" href="chat-widget.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .page-header {
+            max-width: 800px;
+            margin: 0 auto 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .page-header h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .status-info {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        .status-item {
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .status-item label {
+            font-weight: 600;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .status-item code {
+            color: #0066cc;
+            word-break: break-all;
+        }
+        .chat-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h1>OpenClaw 本地连接测试</h1>
+        <p>连接到本机运行的 OpenClaw Gateway</p>
+        <div class="status-info">
+            <div class="status-item">
+                <label>Gateway 地址</label>
+                <code>ws://localhost:18789</code>
+            </div>
+            <div class="status-item">
+                <label>认证方式</label>
+                <code>Token</code>
+            </div>
+            <div class="status-item">
+                <label>Session Key</label>
+                <code>agent:main:main</code>
+            </div>
+            <div class="status-item">
+                <label>Agent</label>
+                <code>main (zai/glm-4.6)</code>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-wrapper">
+        <div id="chat-widget"></div>
+    </div>
+
+    <script src="chat-widget.js?v=12"></script>
+    <script>
+        // 从本机 OpenClaw 配置中读取的 Token
+        const LOCAL_TOKEN = '1716a5eef04bff6b4f79fda916e151a558ec0f3db676d280';
+
+        // 初始化聊天组件
+        const chatWidget = new OpenClawChatWidget({
+            container: '#chat-widget',
+            gatewayUrl: 'ws://localhost:18789',
+            token: LOCAL_TOKEN,
+            sessionKey: 'agent:main:main'
+        });
+
+        // 监听连接事件
+        chatWidget.on('connected', () => {
+            console.log('✅ 已连接到 OpenClaw Gateway');
+            console.log('Token:', LOCAL_TOKEN);
+            console.log('Session Key: agent:main:main');
+        });
+
+        chatWidget.on('disconnected', () => {
+            console.log('❌ 已断开连接');
+        });
+
+        chatWidget.on('message', (data) => {
+            console.log('💬 收到消息:', data);
+        });
+
+        chatWidget.on('tool', (data) => {
+            console.log('🔧 工具调用:', data);
+        });
+
+        // 导出到全局以便调试
+        window.chatWidget = chatWidget;
+
+        console.log(`
+    ╔════════════════════════════════════════════════╗
+    ║  OpenClaw 本地连接测试                          ║
+    ║                                                  ║
+    ║  连接到本机 OpenClaw Gateway                     ║
+    ║  地址: ws://localhost:18789                     ║
+    ║                                                  ║
+    ║  在控制台中可访问:                              ║
+    ║  - chatWidget: 聊天组件实例                     ║
+    ║                                                  ║
+    ╚════════════════════════════════════════════════╝
+        `);
+    </script>
+</body>
+</html>

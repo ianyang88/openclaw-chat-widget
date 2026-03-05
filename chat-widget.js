@@ -1184,6 +1184,8 @@ class OpenClawChatWidget {
         }
 
         this.updateStatus('connecting');
+        this.connectNonce = null;
+        this.connectSent = false;
 
         try {
             this.ws = new WebSocket(this.gatewayUrl);
@@ -1194,10 +1196,14 @@ class OpenClawChatWidget {
         }
 
         this.ws.onopen = () => {
-            this.connected = true;
-            this.reconnectAttempts = 0;
-            this.updateStatus('connected');
-            this.emit('connected');
+            // 等待 connect.challenge 事件
+            console.log('WebSocket connected, waiting for challenge...');
+            this.connectTimer = setTimeout(() => {
+                if (!this.connectNonce) {
+                    this.showError('连接超时：未收到服务器挑战');
+                    this.ws?.close();
+                }
+            }, 10000);
         };
 
         this.ws.onclose = () => {
@@ -1240,14 +1246,47 @@ class OpenClawChatWidget {
     handleMessage(data) {
         try {
             const message = JSON.parse(data);
+            console.log('Received:', message);
 
-            // 处理事件通知
+            // 处理 Gateway 事件（connect.challenge 等）
+            if (message.type === 'event') {
+                this.handleGatewayEvent(message.event, message.payload);
+                return;
+            }
+
+            // 处理响应帧
+            if (message.type === 'res') {
+                // 处理 connect 响应
+                if (message.id === String(this.messageId) && !this.connected) {
+                    if (message.ok) {
+                        this.handleConnectOk(message.payload);
+                    } else {
+                        this.handleConnectError(message.error);
+                    }
+                    return;
+                }
+
+                const pending = this.pendingRequests.get(message.id);
+                if (pending) {
+                    // 将响应转换为旧格式以保持兼容性
+                    const response = {
+                        id: message.id,
+                        result: message.ok ? message.payload : undefined,
+                        error: message.ok ? undefined : message.error
+                    };
+                    pending.resolve(response);
+                    this.pendingRequests.delete(message.id);
+                }
+                return;
+            }
+
+            // 处理旧格式事件通知（method 字段）
             if (message.method) {
                 this.handleEvent(message.method, message.params);
             }
 
-            // 处理 RPC 响应
-            if (message.id !== undefined) {
+            // 处理旧格式响应（没有 type 字段但有 id）
+            if (!message.type && message.id !== undefined) {
                 const pending = this.pendingRequests.get(message.id);
                 if (pending) {
                     pending.resolve(message);
@@ -1257,6 +1296,105 @@ class OpenClawChatWidget {
         } catch (e) {
             console.error('Failed to parse message:', e);
         }
+    }
+
+    /**
+     * 处理 Gateway 事件
+     */
+    handleGatewayEvent(event, payload) {
+        console.log('Gateway event:', event, payload);
+
+        switch (event) {
+            case 'connect.challenge':
+                this.handleConnectChallenge(payload);
+                break;
+            case 'connect.ok':
+                this.handleConnectOk(payload);
+                break;
+            case 'connect.error':
+                this.handleConnectError(payload);
+                break;
+            case 'chat':
+                this.handleChatEvent(payload);
+                break;
+            case 'tool':
+                this.handleToolEvent(payload);
+                break;
+        }
+    }
+
+    /**
+     * 处理 connect.challenge 事件
+     */
+    handleConnectChallenge(payload) {
+        const nonce = payload?.nonce;
+        if (!nonce) {
+            this.showError('服务器挑战缺少 nonce');
+            this.ws?.close(1008, 'missing nonce');
+            return;
+        }
+
+        this.connectNonce = nonce;
+        this.sendConnect();
+    }
+
+    /**
+     * 发送 connect 消息进行认证
+     */
+    sendConnect() {
+        if (!this.connectNonce || this.connectSent) {
+            return;
+        }
+
+        this.connectSent = true;
+
+        if (this.connectTimer) {
+            clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
+
+        const auth = this.getAuthParams();
+        const connectMsg = {
+            type: 'req',
+            id: String(++this.messageId),
+            method: 'connect',
+            params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                client: {
+                    id: 'webchat',
+                    displayName: 'OpenClaw Chat Widget',
+                    version: '1.0.0',
+                    platform: 'web',
+                    mode: 'webchat'
+                },
+                auth: auth.token ? { token: auth.token } : undefined,
+                scopes: ['operator.write', 'operator.admin']
+            }
+        };
+
+        console.log('Sending connect:', JSON.stringify(connectMsg, null, 2));
+        this.ws.send(JSON.stringify(connectMsg));
+    }
+
+    /**
+     * 处理 connect.ok 事件
+     */
+    handleConnectOk(payload) {
+        console.log('Connected to Gateway:', payload);
+        this.connected = true;
+        this.reconnectAttempts = 0;
+        this.updateStatus('connected');
+        this.emit('connected');
+    }
+
+    /**
+     * 处理 connect.error 事件
+     */
+    handleConnectError(payload) {
+        console.error('Connection error:', payload);
+        this.showError('认证失败: ' + (payload?.message || '未知错误'));
+        this.ws?.close();
     }
 
     /**
@@ -1277,13 +1415,17 @@ class OpenClawChatWidget {
      * 处理聊天事件
      */
     handleChatEvent(params) {
-        const { state, message, runId } = params;
+        const { state, message, runId, seq } = params;
+        console.log('Chat event:', { state, message, runId, seq });
 
         if (state === 'final' && message) {
             this.appendMessage('assistant', message);
             this.hideTypingIndicator();
             this.currentRunId = null;
             this.emit('message', { role: 'assistant', message, runId });
+        } else if (state === 'started' || state === 'in_flight') {
+            // 消息处理开始，保持显示 typing indicator
+            this.currentRunId = runId;
         } else if (state === 'error') {
             this.appendMessage('assistant', '抱歉，发生了错误: ' + (params.errorMessage || '未知错误'));
             this.hideTypingIndicator();
@@ -1335,25 +1477,18 @@ class OpenClawChatWidget {
         this.showTypingIndicator();
 
         // 生成唯一 ID 和幂等键
-        const id = ++this.messageId;
+        const id = String(++this.messageId);
         const idempotencyKey = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        // 构建认证参数
-        const auth = this.getAuthParams();
-
-        // 发送 chat.send 请求
+        // 发送 chat.send 请求（认证已通过 connect 完成）
         const request = {
+            type: 'req',
             id,
             method: 'chat.send',
             params: {
                 sessionKey: this.getSessionKey(),
                 message: message,
                 idempotencyKey
-            },
-            connect: {
-                params: {
-                    auth
-                }
             }
         };
 
@@ -1415,18 +1550,15 @@ class OpenClawChatWidget {
     async loadHistory(limit = 50) {
         if (!this.connected) return;
 
-        const id = ++this.messageId;
-        const auth = this.getAuthParams();
+        const id = String(++this.messageId);
 
         const request = {
+            type: 'req',
             id,
             method: 'chat.history',
             params: {
                 sessionKey: this.getSessionKey(),
                 limit
-            },
-            connect: {
-                params: { auth }
             }
         };
 
