@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Chat Widget 示例</title>
+    <link rel="stylesheet" href="chat-widget.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>OpenClaw Chat Widget</h1>
+            <p class="subtitle">支持多种认证方式的 OpenClaw 聊天组件</p>
+        </header>
+
+        <!-- 认证模式切换 -->
+        <div class="config-panel">
+            <h3>认证模式</h3>
+            <div class="auth-mode-selector">
+                <button class="auth-mode-btn active" data-mode="token">Token 认证</button>
+                <button class="auth-mode-btn" data-mode="oauth2">OAuth2</button>
+                <button class="auth-mode-btn" data-mode="none">无认证</button>
+            </div>
+        </div>
+
+        <!-- 聊天组件挂载点 -->
+        <div id="chat-widget"></div>
+
+        <!-- 配置面板 -->
+        <div class="config-panel" id="config-panel">
+            <h3>配置说明</h3>
+            <div id="token-config">
+                <div class="config-item">
+                    <label>WebSocket 地址:</label>
+                    <code>ws://your-openclaw-host:18789</code>
+                </div>
+                <div class="config-item">
+                    <label>Session Key:</label>
+                    <code>agent:main:main</code>
+                </div>
+                <div class="config-item">
+                    <label>认证方式:</label>
+                    <code>Token / Password</code>
+                </div>
+            </div>
+            <div id="oauth2-config" style="display: none;">
+                <div class="config-item">
+                    <label>认证方式:</label>
+                    <code>OAuth2 with PKCE</code>
+                </div>
+                <div class="config-item">
+                    <label>用户隔离:</label>
+                    <code>agent:main:direct:{userId}</code>
+                </div>
+                <div class="config-item">
+                    <label>会话持久化:</label>
+                    <code>启用 (localStorage)</code>
+                </div>
+            </div>
+            <div id="none-config" style="display: none;">
+                <div class="config-item">
+                    <label>认证方式:</label>
+                    <code>无 (演示模式)</code>
+                </div>
+                <div class="config-item">
+                    <label>Session Key:</label>
+                    <code>agent:main:main</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="usage-panel">
+            <h3>使用示例</h3>
+            <pre><code id="usage-code">// Token 认证 (传统方式)
+const chatWidget = new OpenClawChatWidget({
+    container: '#chat-widget',
+    gatewayUrl: 'ws://localhost:18789',
+    token: 'your-token-here',
+    sessionKey: 'agent:main:main'
+});
+
+// OAuth2 认证 (企业SSO)
+const chatWidget = new OpenClawChatWidget({
+    container: '#chat-widget',
+    gatewayUrl: 'ws://localhost:18789',
+    auth: {
+        type: 'oauth2',
+        oauth2: {
+            authorizationEndpoint: 'https://accounts.example.com/authorize',
+            tokenEndpoint: 'https://accounts.example.com/token',
+            clientId: 'your-client-id',
+            redirectUri: window.location.origin + '/oauth-callback',
+            scope: 'openid profile email'
+        }
+    },
+    session: {
+        persist: true,
+        autoRestore: true
+    }
+});
+
+// 监听认证事件
+chatWidget.on('authenticated', (data) => {
+    console.log('用户已登录:', data.userId);
+});
+
+chatWidget.on('logout', () => {
+    console.log('用户已登出');
+});</code></pre>
+        </div>
+    </div>
+
+    <script src="chat-widget.js"></script>
+    <script src="demo.js"></script>
+    <script>
+        // 认证模式切换
+        document.querySelectorAll('.auth-mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // 更新按钮状态
+                document.querySelectorAll('.auth-mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // 更新配置面板
+                const mode = btn.dataset.mode;
+                document.getElementById('token-config').style.display = mode === 'token' ? 'block' : 'none';
+                document.getElementById('oauth2-config').style.display = mode === 'oauth2' ? 'block' : 'none';
+                document.getElementById('none-config').style.display = mode === 'none' ? 'block' : 'none';
+
+                // 重新初始化组件
+                if (window.chatWidget) {
+                    window.chatWidget.destroy();
+                }
+
+                const config = {
+                    container: '#chat-widget',
+                    gatewayUrl: 'ws://localhost:18789'
+                };
+
+                if (mode === 'token') {
+                    config.token = 'demo-token';
+                } else if (mode === 'oauth2') {
+                    config.auth = {
+                        type: 'oauth2',
+                        oauth2: {
+                            authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+                            tokenEndpoint: 'https://oauth2.googleapis.com/token',
+                            clientId: 'your-google-client-id',
+                            redirectUri: window.location.origin + '/oauth-callback',
+                            scope: 'openid profile email'
+                        }
+                    };
+                    config.session = {
+                        persist: true,
+                        autoRestore: true
+                    };
+                }
+
+                window.chatWidget = new OpenClawChatWidget(config);
+            });
+        });
+    </script>
+</body>
+</html>

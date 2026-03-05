@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Chat Widget - Test Page</title>
+    <link rel="stylesheet" href="chat-widget.css">
+    <style>
+        body {
+            padding: 20px;
+        }
+        .test-info {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .test-info h2 {
+            margin: 0 0 10px 0;
+            color: #1e293b;
+        }
+        .test-info p {
+            margin: 5px 0;
+            color: #64748b;
+        }
+        #event-log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .event-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #334155;
+        }
+        .event-entry:last-child {
+            border-bottom: none;
+        }
+        .event-time {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-info">
+        <h2>🧪 OpenClaw Chat Widget - 测试页面</h2>
+        <p>此页面用于 Playwright 自动化测试</p>
+        <p><strong>Session Key:</strong> <code id="session-key-display">agent:main:main</code></p>
+        <p><strong>连接状态:</strong> <span id="connection-status">初始化中...</span></p>
+    </div>
+
+    <div id="chat-widget"></div>
+
+    <div id="event-log">
+        <div class="event-entry"><span class="event-time">[System]</span> 等待组件初始化...</div>
+    </div>
+
+    <script src="chat-widget.js"></script>
+    <script>
+        // 事件日志辅助函数
+        function logEvent(type, data) {
+            const log = document.getElementById('event-log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'event-entry';
+            entry.innerHTML = `<span class="event-time">[${time}]</span> <strong>${type}:</strong> ${JSON.stringify(data)}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // 初始化演示组件
+        document.addEventListener('DOMContentLoaded', () => {
+            const demoWidget = new MockOpenClawWidget({
+                container: '#chat-widget',
+                sessionKey: 'agent:main:main'
+            });
+
+            // 更新连接状态显示
+            demoWidget.on('connected', () => {
+                document.getElementById('connection-status').textContent = '✅ 已连接';
+                document.getElementById('connection-status').style.color = '#22c55e';
+                logEvent('connected', { status: 'connected' });
+            });
+
+            demoWidget.on('disconnected', () => {
+                document.getElementById('connection-status').textContent = '❌ 未连接';
+                document.getElementById('connection-status').style.color = '#ef4444';
+                logEvent('disconnected', { status: 'disconnected' });
+            });
+
+            demoWidget.on('message', (data) => {
+                logEvent('message', data);
+            });
+
+            demoWidget.on('tool', (data) => {
+                logEvent('tool', data);
+            });
+
+            // 导出全局变量供测试使用
+            window.demoWidget = demoWidget;
+
+            // 捕获控制台日志
+            const originalConsoleLog = console.log;
+            console.log = function(...args) {
+                logEvent('console', args.join(' '));
+                originalConsoleLog.apply(console, args);
+            };
+
+            logEvent('system', { message: '组件初始化完成' });
+        });
+    </script>
+</body>
+</html>
