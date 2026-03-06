@@ -866,6 +866,10 @@ class OpenClawChatWidget {
         this.processedMessages = new Set(); // 跟踪已处理的消息
         this.runIdTimeout = null;
 
+        // 文件上传
+        this.uploadedFiles = [];
+        this.maxFileSize = 10 * 1024 * 1024; // 10MB
+
         // 事件监听器
         this.eventListeners = new Map();
 
@@ -1024,6 +1028,15 @@ class OpenClawChatWidget {
                     </div>
 
                     <div class="chat-input-area">
+                        <div class="file-upload-bar" id="fileUploadBar" style="display: none;">
+                            <div class="file-upload-actions">
+                                <button class="file-upload-btn" id="fileUploadBtn" title="上传文件">
+                                    📎 上传文件
+                                </button>
+                                <input type="file" id="fileInput" class="file-input" multiple>
+                            </div>
+                            <div class="file-list" id="fileList"></div>
+                        </div>
                         <div class="input-wrapper">
                             <textarea
                                 class="chat-input"
@@ -1161,6 +1174,9 @@ class OpenClawChatWidget {
 
         // 发送按钮
         sendBtn.addEventListener('click', () => this.sendMessage());
+
+        // 文件上传
+        this.initFileUpload();
 
         // 头部按钮
         headerBtns.forEach(btn => {
@@ -1958,6 +1974,258 @@ class OpenClawChatWidget {
         if (this.token) auth.token = this.token;
         if (this.password) auth.password = this.password;
         return auth;
+    }
+
+    // ============================================================
+    // 文件上传功能
+    // ============================================================
+
+    /**
+     * 初始化文件上传功能
+     */
+    initFileUpload() {
+        const fileUploadBar = this.elements.widget?.querySelector('#fileUploadBar');
+        const fileUploadBtn = this.elements.widget?.querySelector('#fileUploadBtn');
+        const fileInput = this.elements.widget?.querySelector('#fileInput');
+        const fileList = this.elements.widget?.querySelector('#fileList');
+
+        if (!fileUploadBar || !fileUploadBtn || !fileInput) {
+            console.warn('文件上传元素未找到');
+            return;
+        }
+
+        // 显示文件上传区域
+        fileUploadBar.style.display = 'block';
+
+        // 点击上传按钮
+        fileUploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // 文件选择事件
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleFileSelect(e.target.files);
+            }
+            fileInput.value = ''; // 清空，允许重复选择
+        });
+
+        // 拖拽上传
+        const inputWrapper = this.elements.widget?.querySelector('.input-wrapper');
+        if (inputWrapper) {
+            inputWrapper.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                inputWrapper.style.borderColor = '#667eea';
+                inputWrapper.style.backgroundColor = '#f0f4ff';
+            });
+
+            inputWrapper.addEventListener('dragleave', () => {
+                inputWrapper.style.borderColor = '';
+                inputWrapper.style.backgroundColor = '';
+            });
+
+            inputWrapper.addEventListener('drop', (e) => {
+                e.preventDefault();
+                inputWrapper.style.borderColor = '';
+                inputWrapper.style.backgroundColor = '';
+
+                if (e.dataTransfer.files.length > 0) {
+                    this.handleFileSelect(e.dataTransfer.files);
+                }
+            });
+        }
+
+        console.log('✅ 文件上传功能已初始化');
+    }
+
+    /**
+     * 处理文件选择
+     */
+    async handleFileSelect(files) {
+        for (const file of files) {
+            // 检查文件大小
+            if (file.size > this.maxFileSize) {
+                this.showError(`文件 "${file.name}" 太大（最大 10MB）`);
+                continue;
+            }
+
+            try {
+                const fileData = await this.fileToBase64(file);
+                this.uploadedFiles.push(fileData);
+                this.renderFileList();
+            } catch (error) {
+                console.error('文件读取失败:', error);
+                this.showError(`文件 "${file.name}" 读取失败`);
+            }
+        }
+    }
+
+    /**
+     * 将文件转换为 Base64
+     */
+    fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                base64: reader.result.split(',')[1]
+            });
+            reader.onerror = error => reject(error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    /**
+     * 渲染文件列表
+     */
+    renderFileList() {
+        const fileList = this.elements.widget?.querySelector('#fileList');
+        if (!fileList) return;
+
+        if (this.uploadedFiles.length === 0) {
+            fileList.innerHTML = '';
+            return;
+        }
+
+        fileList.innerHTML = this.uploadedFiles.map((file, index) => `
+            <div class="file-item">
+                <div class="file-item-info">
+                    <span class="file-item-icon">${this.getFileIcon(file.type)}</span>
+                    <div class="file-item-details">
+                        <div class="file-item-name">${this.escapeHtml(file.name)}</div>
+                        <div class="file-item-size">${this.formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+                <button class="file-item-remove" data-index="${index}" title="移除文件">✕</button>
+            </div>
+        `).join('');
+
+        // 添加删除按钮事件监听
+        fileList.querySelectorAll('.file-item-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const index = parseInt(btn.dataset.index);
+                this.removeFile(index);
+            });
+        });
+
+        console.log(`📎 当前已上传 ${this.uploadedFiles.length} 个文件`);
+    }
+
+    /**
+     * 移除文件
+     */
+    removeFile(index) {
+        this.uploadedFiles.splice(index, 1);
+        this.renderFileList();
+    }
+
+    /**
+     * 获取文件图标
+     */
+    getFileIcon(mimeType) {
+        const icons = {
+            'image/png': '🖼️',
+            'image/jpeg': '🖼️',
+            'image/gif': '🖼️',
+            'image/webp': '🖼️',
+            'application/pdf': '📄',
+            'text/plain': '📝',
+            'text/html': '🌐',
+            'text/csv': '📊',
+            'application/json': '📋',
+            'default': '📎'
+        };
+        return icons[mimeType] || icons['default'];
+    }
+
+    /**
+     * 格式化文件大小
+     */
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    /**
+     * HTML 转义
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * 发送消息（重写以支持文件）
+     */
+    async sendMessage(message) {
+        if (typeof message !== 'string') {
+            message = this.elements.input.value.trim();
+        }
+
+        if (!message && this.uploadedFiles.length === 0) {
+            return;
+        }
+
+        // 如果有文件，附加到消息中
+        if (this.uploadedFiles.length > 0) {
+            message = message || '请帮我分析这些文件';
+
+            let fileMessage = message;
+
+            if (this.uploadedFiles.length === 1) {
+                const file = this.uploadedFiles[0];
+                fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
+            } else {
+                fileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
+                this.uploadedFiles.forEach((file, index) => {
+                    fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
+                });
+            }
+
+            // 清空已上传文件
+            this.uploadedFiles = [];
+            this.renderFileList();
+
+            message = fileMessage;
+        }
+
+        // 清空输入框
+        this.elements.input.value = '';
+        this.updateSendButton();
+        this.autoResizeInput();
+
+        // 清空已处理消息记录
+        this.processedMessages.clear();
+
+        // 显示用户消息
+        this.appendMessage('user', message);
+        this.emit('message', { role: 'user', message });
+
+        // 显示正在输入指示器
+        this.showTypingIndicator();
+
+        // 发送到 OpenClaw Gateway
+        try {
+            const response = await this.sendRequest('chat', {
+                sessionKey: this.getSessionKey(),
+                message: message
+            });
+
+            this.hideTypingIndicator();
+
+            if (response.error) {
+                this.appendMessage('assistant', '❌ 错误: ' + response.error.message);
+            }
+        } catch (error) {
+            this.hideTypingIndicator();
+            this.appendMessage('assistant', '❌ 发送失败: ' + error.message);
+        }
     }
 }
 

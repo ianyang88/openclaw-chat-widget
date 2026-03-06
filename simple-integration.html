@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>妙笔助手 - 智能写作助手</title>
     <link rel="stylesheet" href="chat-widget.css">
+    <style>
+    </style>
 
     <!-- Markdown 解析库 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -233,6 +235,12 @@
 用户 B: simple-integration.html?id=lisi
 用户 C: simple-integration.html?id=12345</code></pre>
         </div>
+
+        <!-- 文件预览模态框 -->
+        <div class="file-preview-modal" id="filePreviewModal">
+            <button class="file-preview-close" id="filePreviewClose">✕</button>
+            <div class="file-preview-content" id="filePreviewContent"></div>
+        </div>
     </div>
 
     <script src="chat-widget.js"></script>
@@ -263,8 +271,33 @@
                 container: '#chat-widget',
                 gatewayUrl: 'ws://8.148.244.33:18789',
                 token: gatewayToken,  // Gateway 认证 token
-                sessionKey: sessionKey  // 用户专属的 sessionKey
+                sessionKey: sessionKey,  // 用户专属的 sessionKey
+                auth: { type: 'none' },  // 禁用认证管理器，直接使用 sessionKey
+                session: {
+                    persist: false,  // 不持久化，每次从 URL 获取用户 ID
+                    autoRestore: false
+                }
             });
+
+            // 手动设置 userManager，确保 sessionKey 正确
+            if (chatWidget.userManager) {
+                // 修改 baseSessionKey 以包含 'direct' 部分
+                chatWidget.userManager.baseSessionKey = 'agent:main:direct';
+                // 设置 userPrefix 为 'url' 以匹配 sessionKey 格式
+                chatWidget.userManager.userPrefix = 'url';
+                chatWidget.userManager.setUser(userId, {
+                    id: userId,
+                    username: userId,
+                    name: userId
+                });
+                console.log('✅ UserManager 设置完成:', {
+                    userId: userId,
+                    baseSessionKey: chatWidget.userManager.baseSessionKey,
+                    userPrefix: chatWidget.userManager.userPrefix,
+                    generatedSessionKey: chatWidget.userManager.getSessionKey(),
+                    expectedSessionKey: sessionKey
+                });
+            }
 
             // 监听事件
             chatWidget.on('authenticated', () => {
@@ -274,6 +307,9 @@
 
             chatWidget.on('connected', () => {
                 console.log('🔌 WebSocket 已连接');
+                console.log('📊 当前 Session Key:', chatWidget.getSessionKey());
+                console.log('📊 baseSessionKey:', chatWidget.baseSessionKey);
+                console.log('📊 userManager.sessionKey:', chatWidget.userManager ? chatWidget.userManager.getSessionKey() : 'N/A');
                 updateConnectionStatus('已连接');
             });
 
@@ -325,6 +361,7 @@
             document.getElementById('errorMessage').style.display = 'none';
             document.getElementById('userInfoCard').style.display = 'block';
             document.getElementById('integrationGuide').style.display = 'none';
+            document.getElementById('fileUploadContainer').style.display = 'block';
 
             updateUserInfo(userId, sessionKey);
             initChatWidget(userId);
@@ -335,7 +372,7 @@
         // ========================================
 
         console.log(`
-🔧 OpenClaw 简单集成模式 - 调试命令
+🔧 妙笔助手 - 调试命令
 
 // 查看当前用户 ID
 getUserIdFromURL()
@@ -348,6 +385,13 @@ chatWidget.connected
 
 // 查看使用的 token
 chatWidget.token
+
+// 查看已上传的文件
+chatWidget.uploadedFiles
+
+// 清空已上传的文件
+chatWidget.uploadedFiles = []
+chatWidget.renderFileList()
 
 // 测试不同用户
 // 在 URL 中修改 ?id=xxx 参数
