@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试 sessions_spawn</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #result {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1>测试 sessions_spawn 工具</h1>
+
+    <div class="section">
+        <h3>配置</h3>
+        <label>Gateway URL: </label>
+        <input type="text" id="gatewayUrl" value="http://8.148.244.33:18789" style="width: 300px;">
+        <br><br>
+        <label>Token: </label>
+        <input type="text" id="token" value="9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5" style="width: 400px;">
+    </div>
+
+    <div class="section">
+        <h3>测试用例</h3>
+        <button onclick="testSessionsList()">1. 测试 sessions_list</button>
+        <button onclick="testSessionsSpawn()">2. 测试 sessions_spawn</button>
+        <button onclick="testSessionsSpawnWithAttachment()">3. 测试 sessions_spawn + attachment</button>
+    </div>
+
+    <div class="section">
+        <h3>结果</h3>
+        <div id="result">等待测试...</div>
+    </div>
+
+    <script>
+        const GATEWAY_URL = document.getElementById('gatewayUrl').value;
+        const TOKEN = document.getElementById('token').value;
+
+        function log(message) {
+            const result = document.getElementById('result');
+            result.textContent += message + '\n';
+            console.log(message);
+        }
+
+        async function callTool(toolName, args, sessionKey = 'agent:main:main') {
+            const url = `${GATEWAY_URL}/tools/invoke`;
+
+            log(`\n调用工具: ${toolName}`);
+            log(`URL: ${url}`);
+            log(`参数: ${JSON.stringify(args, null, 2)}`);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        tool: toolName,
+                        args: args,
+                        sessionKey: sessionKey
+                    })
+                });
+
+                const result = await response.json();
+                log(`状态码: ${response.status}`);
+                log(`响应: ${JSON.stringify(result, null, 2)}`);
+
+                return result;
+            } catch (error) {
+                log(`错误: ${error.message}`);
+                return { error: error.message };
+            }
+        }
+
+        async function testSessionsList() {
+            log('\n========================================');
+            log('测试 1: sessions_list');
+            log('========================================');
+
+            await callTool('sessions_list', {
+                limit: 5
+            });
+        }
+
+        async function testSessionsSpawn() {
+            log('\n========================================');
+            log('测试 2: sessions_spawn (无附件)');
+            log('========================================');
+
+            await callTool('sessions_spawn', {
+                task: '计算 2 + 2',
+                runTimeoutSeconds: 30
+            });
+        }
+
+        async function testSessionsSpawnWithAttachment() {
+            log('\n========================================');
+            log('测试 3: sessions_spawn + attachment');
+            log('========================================');
+
+            // 创建一个小的测试文件
+            const testContent = 'Hello, this is a test file!';
+            const base64Content = btoa(testContent);
+
+            await callTool('sessions_spawn', {
+                task: '读取附件文件并告诉我内容',
+                attachments: [{
+                    name: 'test.txt',
+                    content: base64Content,
+                    encoding: 'base64',
+                    mimeType: 'text/plain'
+                }],
+                runTimeoutSeconds: 30
+            });
+        }
+    </script>
+</body>
+</html>

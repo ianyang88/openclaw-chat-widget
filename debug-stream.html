@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试消息流</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        #log {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 5px;
+            height: 600px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-time {
+            color: #569cd6;
+        }
+        .log-info {
+            color: #4ec9b0;
+        }
+        .log-warn {
+            color: #dcdcaa;
+        }
+        .log-error {
+            color: #f48771;
+        }
+        .log-success {
+            color: #b5cea8;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            cursor: pointer;
+            background: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        #stats {
+            margin: 10px 0;
+            padding: 10px;
+            background: #2d2d2d;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 OpenClaw 消息流调试</h1>
+
+    <div>
+        <button onclick="startTest()">开始测试</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+
+    <div id="stats">
+        <div>接收的事件: <span id="eventCount">0</span></div>
+        <div>FINAL 消息: <span id="finalCount">0</span></div>
+        <div>显示的消息: <span id="displayedCount">0</span></div>
+        <div>跳过的重复: <span id="skippedCount">0</span></div>
+    </div>
+
+    <div id="log"></div>
+
+    <script src="chat-widget.js"></script>
+    <script>
+        let eventCount = 0;
+        let finalCount = 0;
+        let displayedCount = 0;
+        let skippedCount = 0;
+        let messageTimes = [];
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateStats() {
+            document.getElementById('eventCount').textContent = eventCount;
+            document.getElementById('finalCount').textContent = finalCount;
+            document.getElementById('displayedCount').textContent = displayedCount;
+            document.getElementById('skippedCount').textContent = skippedCount;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            eventCount = 0;
+            finalCount = 0;
+            displayedCount = 0;
+            skippedCount = 0;
+            messageTimes = [];
+            updateStats();
+        }
+
+        async function startTest() {
+            clearLog();
+            log('🚀 开始测试...', 'success');
+
+            // 创建聊天组件
+            const widget = new OpenClawChatWidget({
+                container: '#log',
+                gatewayUrl: 'ws://8.148.244.33:18789',
+                token: '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5',
+                sessionKey: 'agent:main:direct:url:debug-test',
+                auth: { type: 'none' }
+            });
+
+            // 等待连接
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // 发送测试消息
+            log('📤 发送测试消息: "人工智能最近有什么新闻"', 'info');
+
+            // 劫持原始的 handleChatEvent 来添加日志
+            const originalHandleChatEvent = widget.handleChatEvent.bind(widget);
+            widget.handleChatEvent = function(params) {
+                eventCount++;
+
+                const { state, message, runId, seq } = params;
+
+                log(`📨 Event #${eventCount}: state=${state}, runId=${runId ? runId.substring(0, 8) : 'N/A'}, seq=${seq}`, 'info');
+
+                if (state === 'final' && message) {
+                    finalCount++;
+                    const messageKey = runId && seq !== undefined ? `${runId}:${seq}` : null;
+
+                    log(`  ✅ FINAL #${finalCount}: seq=${seq}, key=${messageKey}, length=${message.length}`, 'success');
+                    log(`  📝 内容: ${message.substring(0, 50)}...`, 'info');
+
+                    // 检查去重
+                    if (this.processedMessages.has(messageKey)) {
+                        skippedCount++;
+                        log(`  ⚠️ 跳过重复消息: ${messageKey}`, 'warn');
+                        updateStats();
+                        return;
+                    }
+
+                    displayedCount++;
+                    messageTimes.push(Date.now());
+
+                    if (messageTimes.length > 1) {
+                        const diff = messageTimes[messageTimes.length - 1] - messageTimes[messageTimes.length - 2];
+                        log(`  ⏱️  距离上一条: ${diff}ms`, 'info');
+                    }
+
+                    updateStats();
+                }
+
+                // 调用原始处理函数
+                originalHandleChatEvent(params);
+            };
+
+            // 发送消息
+            try {
+                await widget.sendMessage('人工智能最近有什么新闻');
+                log('✅ 消息已发送', 'success');
+            } catch (e) {
+                log(`❌ 发送失败: ${e.message}`, 'error');
+            }
+
+            // 记录60秒
+            log('📊 记录日志中... (60秒)', 'info');
+            setTimeout(() => {
+                log('\n📊 测试完成！统计:', 'success');
+                log(`  总事件: ${eventCount}`, 'info');
+                log(`  FINAL: ${finalCount}`, 'info');
+                log(`  已显示: ${displayedCount}`, 'info');
+                log(`  已跳过: ${skippedCount}`, 'warn');
+
+                if (displayedCount < finalCount) {
+                    log(`\n⚠️ 问题: ${finalCount - displayedCount} 条消息被去重跳过了!`, 'error');
+                } else if (displayedCount === 1 && finalCount > 1) {
+                    log(`\n⚠️ 问题: 收到 ${finalCount} 条消息，但只显示了 1 条!`, 'error');
+                } else {
+                    log(`\n✅ 正常: 所有消息都已显示`, 'success');
+                }
+            }, 60000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Gateway Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        #log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 500px;
+        }
+    </style>
+</head>
+<body>
+    <h1>OpenClaw Gateway WebSocket Test</h1>
+<body>
+    <h1>OpenClaw Gateway WebSocket 测试</h1>
+    <div>
+        <button onclick="testConnect()">连接</button>
+        <button onclick="testSend()">发送测试消息</button>
+        <button onclick="testDisconnect()">断开</button>
+    </div>
+    <pre id="log"></pre>
+
+    <script>
+        const log = document.getElementById('log');
+        let ws = null;
+
+        function addLog(msg) {
+            const time = new Date().toLocaleTimeString();
+            log.textContent += `[${time}] ${msg}\n`;
+            console.log(msg);
+        }
+
+        function testConnect() {
+            addLog('正在连接到 ws://8.148.244.33:18789...');
+
+            ws = new WebSocket('ws://8.148.244.33:18789');
+
+            ws.onopen = () => {
+                addLog('✅ WebSocket 已连接');
+                addLog('等待 connect.challenge...');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                addLog(`📨 收到消息: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
+
+                // 处理 connect.challenge
+                if (data.event === 'connect.challenge') {
+                    const nonce = data.payload.nonce;
+                    addLog(`🔑 收到 challenge，nonce: ${nonce}`);
+
+                    const connectMsg = {
+                        type: 'req',
+                        id: '1',
+                        method: 'connect',
+                        params: {
+                            minProtocol: 3,
+                            maxProtocol: 3,
+                            client: {
+                                id: 'webchat',
+                                displayName: 'Test Client',
+                                version: '1.0.0',
+                                platform: 'web',
+                                mode: 'webchat'
+                            },
+                            auth: {
+                                token: '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5'
+                            },
+                            scopes: ['operator.write', 'operator.admin']
+                        }
+                    };
+
+                    addLog(`📤 发送 connect 消息...`);
+                    ws.send(JSON.stringify(connectMsg));
+                }
+
+                // 处理 connect.ok
+                if (data.event === 'connect.ok') {
+                    addLog('✅ 认证成功！');
+                }
+            };
+
+            ws.onerror = (error) => {
+                addLog(`❌ WebSocket 错误: ${error}`);
+            };
+
+            ws.onclose = () => {
+                addLog('🔌 WebSocket 已断开');
+            };
+        }
+
+        function testSend() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('❌ WebSocket 未连接');
+                return;
+            }
+
+            const chatMsg = {
+                type: 'req',
+                id: String(Date.now()),
+                method: 'chat.send',
+                params: {
+                    sessionKey: 'agent:main:main',
+                    message: '你好',
+                    idempotencyKey: `test_${Date.now()}`
+                }
+            };
+
+            addLog(`📤 发送 chat 消息: ${JSON.stringify(chatMsg, null, 2)}`);
+            ws.send(JSON.stringify(chatMsg));
+        }
+
+        function testDisconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+    </script>
+</body>
+</html>
