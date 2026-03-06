@@ -269,8 +269,9 @@
             // Gateway token（从配置文件中获取）
             const gatewayToken = '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5';
 
-            // 使用 userId 生成唯一的 sessionKey
-            const sessionKey = `agent:main:direct:url:${userId}`;
+            // 使用 userId + 时间戳生成唯一的 sessionKey（每次刷新都清空上下文）
+            const timestamp = Date.now();
+            const sessionKey = `agent:main:direct:url:${userId}:${timestamp}`;
 
             chatWidget = new OpenClawChatWidget({
                 container: '#chat-widget',

@@ -1478,10 +1478,17 @@ class OpenClawChatWidget {
     updateStreamingMessage(runId, deltaContent) {
         const { messagesContainer } = this.elements;
 
+        console.log('🔄 updateStreamingMessage called:', {
+            runId,
+            deltaContentType: typeof deltaContent,
+            deltaContent: deltaContent
+        });
+
         // 查找或创建流式消息元素
         let messageEl = this.streamingMessages.get(runId);
 
         if (!messageEl) {
+            console.log('✨ Creating new streaming message element');
             // 创建新的流式消息
             messageEl = document.createElement('div');
             messageEl.className = 'message assistant streaming';
@@ -1501,6 +1508,12 @@ class OpenClawChatWidget {
         // 更新内容
         const contentEl = messageEl.querySelector('.streaming-content');
         const displayContent = this.formatMessage(deltaContent);
+
+        console.log('🎨 Formatted content:', {
+            displayContentLength: displayContent.length,
+            displayContentPreview: displayContent.substring(0, 100)
+        });
+
         contentEl.innerHTML = displayContent;
 
         // 滚动到底部
@@ -1542,7 +1555,9 @@ class OpenClawChatWidget {
             seq,
             seqType: typeof seq,
             hasMessage: !!message,
-            messageLength: message ? message.length : 0
+            messageType: typeof message,
+            messageKeys: message ? Object.keys(message) : null,
+            messagePreview: message ? JSON.stringify(message).substring(0, 100) : null
         });
 
         // 处理 ok 状态（run 完成）
@@ -1610,11 +1625,12 @@ class OpenClawChatWidget {
         } else if (state === 'delta' && message) {
             console.log('📖 Processing DELTA message (streaming):', {
                 runId,
-                length: messageStr.length,
-                preview: messageStr.substring(0, 50),
-                messageType: typeof message
+                messageType: typeof message,
+                messageKeys: typeof message === 'object' ? Object.keys(message) : null,
+                rawMessage: message
             });
-            this.updateStreamingMessage(runId, messageStr);
+            // 传递原始 message 对象，让 formatMessage 正确处理
+            this.updateStreamingMessage(runId, message);
             return;
         } else if (state === 'started' || state === 'in_flight') {
             console.log('🔄 Processing STARTED/IN_FLIGHT state');
@@ -1661,18 +1677,27 @@ class OpenClawChatWidget {
         }
 
         // 如果有文件附件，附加到消息中
+        let displayMessage = message; // 用于显示的消息（不包含 base64）
         if (this.uploadedFiles.length > 0) {
             message = message || '请帮我分析这些文件';
 
             let fileMessage = message;
+            let displayFileMessage = message;
 
             if (this.uploadedFiles.length === 1) {
                 const file = this.uploadedFiles[0];
+                // 发送给服务器的消息（包含 base64）
                 fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
+                // 显示给用户的消息（不包含 base64）
+                displayFileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}`;
             } else {
+                // 发送给服务器的消息（包含 base64）
                 fileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
+                // 显示给用户的消息（不包含 base64）
+                displayFileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
                 this.uploadedFiles.forEach((file, index) => {
                     fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
+                    displayFileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n\n`;
                 });
             }
 
@@ -1681,6 +1706,7 @@ class OpenClawChatWidget {
             this.renderFileList();
 
             message = fileMessage;
+            displayMessage = displayFileMessage;
         }
 
         if (!message) return;
@@ -1707,9 +1733,9 @@ class OpenClawChatWidget {
         // 清空已处理消息记录
         this.processedMessages.clear();
 
-        // 显示用户消息
-        this.appendMessage('user', message);
-        this.emit('message', { role: 'user', message });
+        // 显示用户消息（使用不包含 base64 的版本）
+        this.appendMessage('user', displayMessage);
+        this.emit('message', { role: 'user', message: displayMessage });
 
         // 显示正在输入
         this.showTypingIndicator();
@@ -1959,15 +1985,35 @@ class OpenClawChatWidget {
         // 提取文本内容
         if (typeof content === 'string') {
             text = content;
-        } else if (Array.isArray(content?.content)) {
-            text = content.content.map(block => {
-                if (block.type === 'text') {
-                    return block.text || '';
-                }
-                return '';
-            }).join('');
+        } else if (content === null || content === undefined) {
+            text = '';
+        } else if (typeof content === 'object') {
+            // 处理对象类型的消息
+            if (Array.isArray(content?.content)) {
+                // OpenClaw 标准格式：{ content: [{ type: 'text', text: '...' }] }
+                text = content.content.map(block => {
+                    if (block.type === 'text') {
+                        return block.text || '';
+                    }
+                    // 跳过非文本块（如图片、文件等）
+                    return '';
+                }).join('');
+            } else if (content.text) {
+                // 简单格式：{ text: '...' }
+                text = content.text;
+            } else if (content.message) {
+                // 嵌套格式：{ message: '...' } 或 { message: { text: '...' } }
+                text = typeof content.message === 'string'
+                    ? content.message
+                    : content.message?.text || '';
+            } else {
+                // 未知格式，尝试提取有用信息
+                console.warn('⚠️ Unknown message format:', content);
+                text = '[无法显示的消息内容]';
+            }
         } else {
-            text = JSON.stringify(content);
+            // 其他类型（数字、布尔等）
+            text = String(content);
         }
 
         // 渲染 Markdown
