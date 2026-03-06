@@ -207,6 +207,11 @@
 
         <div id="chat-widget"></div>
 
+        <!-- 取消按钮 -->
+        <div style="text-align: center; margin: 10px 0;">
+            <button id="cancelBtn" class="cancel-btn" style="display: none;">✕ 取消</button>
+        </div>
+
         <div class="integration-guide" id="integrationGuide">
             <h3>📖 妙笔助手集成指南</h3>
             <p style="color: #64748b; margin-bottom: 12px;">
@@ -321,6 +326,14 @@
             chatWidget.on('error', (error) => {
                 console.error('❌ 错误:', error);
             });
+
+            // 绑定取消按钮
+            const cancelBtn = document.getElementById('cancelBtn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                    chatWidget.cancelCurrentMessage();
+                });
+            }
 
             return chatWidget;
         }

@@ -864,11 +864,15 @@ class OpenClawChatWidget {
         this.pendingRequests = new Map();
         this.currentRunId = null;
         this.processedMessages = new Set(); // 跟踪已处理的消息
-        this.runIdTimeout = null;
+        this.runIdTimeout = null; // 30秒警告定时器
+        this.runIdCleanupTimeout = null; // 5秒清空定时器
 
         // 文件上传
         this.uploadedFiles = [];
-        this.maxFileSize = 10 * 1024 * 1024; // 10MB
+        this.maxFileSize = 100 * 1024; // 100KB (仅支持文本文件，防止超时)
+
+        // 流式消息管理
+        this.streamingMessages = new Map(); // runId -> message element
 
         // 事件监听器
         this.eventListeners = new Map();
@@ -1430,68 +1434,207 @@ class OpenClawChatWidget {
     }
 
     /**
+     * 取消当前正在处理的消息
+     */
+    cancelCurrentMessage() {
+        if (!this.currentRunId) {
+            console.warn('⚠️ No active run to cancel');
+            return;
+        }
+
+        console.log('❌ Cancelling run:', this.currentRunId);
+
+        // 清理状态
+        this.currentRunId = null;
+        this.clearRunIdTimeout();
+        this.hideTypingIndicator();
+
+        // 清理流式消息
+        this.streamingMessages.forEach((el, runId) => {
+            el.remove();
+        });
+        this.streamingMessages.clear();
+
+        // 显示取消提示
+        this.showWarning('已取消消息');
+
+        // 更新取消按钮状态
+        this.updateCancelButton();
+    }
+
+    /**
+     * 更新取消按钮显示状态
+     */
+    updateCancelButton() {
+        const cancelBtn = document.getElementById('cancelBtn');
+        if (cancelBtn) {
+            cancelBtn.style.display = this.currentRunId ? 'inline-block' : 'none';
+        }
+    }
+
+    /**
+     * 更新流式消息（delta 状态）
+     */
+    updateStreamingMessage(runId, deltaContent) {
+        const { messagesContainer } = this.elements;
+
+        // 查找或创建流式消息元素
+        let messageEl = this.streamingMessages.get(runId);
+
+        if (!messageEl) {
+            // 创建新的流式消息
+            messageEl = document.createElement('div');
+            messageEl.className = 'message assistant streaming';
+            messageEl.innerHTML = `
+                <div class="message-avatar">🦀</div>
+                <div class="message-content">
+                    <div class="message-bubble streaming-bubble">
+                        <span class="streaming-indicator">✍️</span>
+                        <span class="streaming-content"></span>
+                    </div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageEl);
+            this.streamingMessages.set(runId, messageEl);
+        }
+
+        // 更新内容
+        const contentEl = messageEl.querySelector('.streaming-content');
+        const displayContent = this.formatMessage(deltaContent);
+        contentEl.innerHTML = displayContent;
+
+        // 滚动到底部
+        messageEl.offsetHeight; // 触发 reflow
+        this.scrollToBottom();
+    }
+
+    /**
+     * 完成流式消息（final 状态）
+     */
+    finalizeStreamingMessage(runId, finalContent) {
+        let messageEl = this.streamingMessages.get(runId);
+
+        if (messageEl) {
+            // 更新为最终消息
+            const bubble = messageEl.querySelector('.message-bubble');
+            bubble.classList.remove('streaming-bubble');
+            bubble.innerHTML = this.formatMessage(finalContent);
+            bubble.innerHTML += `<div class="message-time">${this.formatTime(new Date())}</div>`;
+
+            // 移除 streaming 状态
+            messageEl.classList.remove('streaming');
+            this.streamingMessages.delete(runId);
+        } else {
+            // 没有流式消息，直接添加最终消息
+            this.appendMessage('assistant', finalContent);
+        }
+    }
+
+    /**
      * 处理聊天事件
      */
     handleChatEvent(params) {
-        const { state, message, runId, seq } = params;
-        console.log('📨 Chat event:', { state, runId, seq, hasMessage: !!message });
+        const { state, message, runId, seq, status } = params;
+        console.log('📨 Chat event:', {
+            state,
+            status,
+            runId,
+            seq,
+            seqType: typeof seq,
+            hasMessage: !!message,
+            messageLength: message ? message.length : 0
+        });
+
+        // 处理 ok 状态（run 完成）
+        if (status === 'ok') {
+            console.log('✅ Run completed with status=ok');
+            this.currentRunId = null;
+            this.clearRunIdTimeout();
+            this.updateCancelButton();
+            return;
+        }
 
         // 创建消息唯一标识符
+        // 使用内容哈希作为 key（更可靠的去重方式）
+        // 确保 message 是字符串类型
+        const messageStr = message != null ? String(message) : '';
+        const contentHash = messageStr ? `${runId}:${messageStr.substring(0, 100)}` : null;
         const messageKey = runId && seq !== undefined ? `${runId}:${seq}` : null;
-        console.log('🔑 Message key:', messageKey);
+        console.log('🔑 Message keys:', { messageKey, contentHash, seq, seqType: typeof seq, messageType: typeof message });
 
         if (state === 'final' && message) {
-            console.log('✅ Processing FINAL message');
+            console.log('✅ Processing FINAL message:', {
+                runId,
+                seq,
+                messageKey,
+                contentHash: contentHash ? contentHash.substring(0, 50) : 'N/A',
+                messageLength: messageStr.length,
+                messageType: typeof message
+            });
 
-            // 检查是否已处理过此消息（去重）
-            if (messageKey && this.processedMessages.has(messageKey)) {
-                console.log('⚠️ Skipping duplicate message:', messageKey);
+            // 使用内容哈希去重（更可靠）
+            if (contentHash && this.processedMessages.has(contentHash)) {
+                console.log('⚠️ Skipping duplicate message (by content):', contentHash.substring(0, 50));
                 return;
             }
 
             // 标记消息已处理
-            if (messageKey) {
-                this.processedMessages.add(messageKey);
-                console.log('➕ Added to processed:', messageKey);
+            if (contentHash) {
+                this.processedMessages.add(contentHash);
+                console.log('➕ Added to processed:', contentHash.substring(0, 50), 'Total processed:', this.processedMessages.size);
             }
 
-            // 显示消息
-            console.log('💬 Appending FINAL message to UI...');
-            this.appendMessage('assistant', message);
+            // 如果有流式消息，完成它；否则添加新消息
+            if (this.streamingMessages.has(runId)) {
+                console.log('💬 Finalizing streaming message...');
+                this.finalizeStreamingMessage(runId, message);
+            } else {
+                console.log('💬 Appending FINAL message to UI...');
+                this.appendMessage('assistant', message);
+            }
             this.hideTypingIndicator();
             this.emit('message', { role: 'assistant', message, runId, seq });
 
-            // 延迟清空 currentRunId，允许后续消息到达（可能有其他笑话）
-            if (!this.runIdTimeout) {
-                console.log('⏰ Setting runId timeout (5000ms) - waiting for more messages');
-                this.runIdTimeout = setTimeout(() => {
-                    console.log('🔔 Timeout: Clearing currentRunId and processed messages');
-                    this.currentRunId = null;
-                    this.runIdTimeout = null;
-                    // 不要清空 processedMessages，保留去重记录
-                }, 5000); // 增加到5秒，给更多时间等待后续消息
-            } else {
-                console.log('⏳ Timeout already exists, not setting new one');
+            // 检查是否是最后一个消息（seq 通常从0开始，连续的 final 消息 seq 会递增）
+            // 如果这是该 runId 的第一个 final 消息，设置5秒延迟清空
+            // 后续的 final 消息会重置这个定时器
+            if (this.runIdCleanupTimeout) {
+                clearTimeout(this.runIdCleanupTimeout);
             }
+            console.log('⏰ Setting runId cleanup timeout (5000ms)');
+            this.runIdCleanupTimeout = setTimeout(() => {
+                console.log('🔔 Cleanup: Clearing currentRunId');
+                this.currentRunId = null;
+                this.runIdCleanupTimeout = null;
+            }, 5000);
         } else if (state === 'delta' && message) {
-            console.log('🔄 Ignoring DELTA message (streaming update, waiting for final)');
-            // delta 消息是流式传输的中间状态，忽略它们
-            // 只显示 final 消息
+            console.log('📖 Processing DELTA message (streaming):', {
+                runId,
+                length: messageStr.length,
+                preview: messageStr.substring(0, 50),
+                messageType: typeof message
+            });
+            this.updateStreamingMessage(runId, messageStr);
+            return;
         } else if (state === 'started' || state === 'in_flight') {
             console.log('🔄 Processing STARTED/IN_FLIGHT state');
-            this.currentRunId = runId;
 
-            // 取消超时定时器
-            if (this.runIdTimeout) {
-                console.log('❌ Cancelling runId timeout');
-                clearTimeout(this.runIdTimeout);
-                this.runIdTimeout = null;
+            // 如果是同一个 runId，不要重复设置超时
+            if (this.currentRunId !== runId) {
+                this.currentRunId = runId;
+                // 启动30秒超时定时器
+                this.startRunIdTimeout();
+                this.updateCancelButton();
+            } else {
+                console.log('⏳ Same runId, skipping timeout reset');
             }
         } else if (state === 'error') {
             console.log('❌ Processing ERROR state');
             this.appendMessage('assistant', '抱歉，发生了错误: ' + (params.errorMessage || '未知错误'));
             this.hideTypingIndicator();
             this.currentRunId = null;
+            this.clearRunIdTimeout(); // 清除超时定时器
+            this.updateCancelButton();
         }
 
         console.log('📊 Current state: currentRunId =', this.currentRunId, ', runIdTimeout =', !!this.runIdTimeout);
@@ -1510,9 +1653,10 @@ class OpenClawChatWidget {
      * 发送消息
      */
     async sendMessage(message) {
+        const { input } = this.elements;
+
         // 如果没有传入消息参数，从输入框获取
         if (typeof message !== 'string') {
-            const { input } = this.elements;
             message = input.value.trim();
         }
 
@@ -1597,11 +1741,19 @@ class OpenClawChatWidget {
 
                 if (status === 'started') {
                     this.currentRunId = runId;
+                    // 启动30秒超时定时器
+                    this.startRunIdTimeout();
+                    this.updateCancelButton();
                 } else if (status === 'in_flight') {
                     this.currentRunId = runId;
+                    // 启动30秒超时定时器
+                    this.startRunIdTimeout();
+                    this.updateCancelButton();
                 } else if (status === 'ok') {
                     // 消息已处理完成
                     this.currentRunId = null;
+                    this.clearRunIdTimeout();
+                    this.updateCancelButton();
                 }
             }
 
@@ -1636,6 +1788,68 @@ class OpenClawChatWidget {
                 }
             });
         });
+    }
+
+    /**
+     * 启动 RunId 超时定时器（30秒自动恢复）
+     */
+    startRunIdTimeout() {
+        // 清除旧的定时器
+        this.clearRunIdTimeout();
+
+        // 设置30秒超时（只警告，不清空 currentRunId）
+        this.runIdTimeout = setTimeout(() => {
+            if (this.currentRunId) {
+                console.warn('⏱️ RunId 处理时间较长:', this.currentRunId);
+                this.showWarning('AI 正在思考中，请稍候...');
+            }
+        }, 30000); // 30秒
+
+        console.log('⏰ 启动 RunId 超时定时器（30秒）');
+    }
+
+    /**
+     * 清除 RunId 超时定时器
+     */
+    clearRunIdTimeout() {
+        if (this.runIdTimeout) {
+            clearTimeout(this.runIdTimeout);
+            this.runIdTimeout = null;
+            console.log('🔔 清除30秒警告定时器');
+        }
+        if (this.runIdCleanupTimeout) {
+            clearTimeout(this.runIdCleanupTimeout);
+            this.runIdCleanupTimeout = null;
+            console.log('🔔 清除5秒清空定时器');
+        }
+    }
+
+    /**
+     * 显示警告消息（黄色，非错误）
+     */
+    showWarning(message) {
+        const { messagesContainer } = this.elements;
+        if (!messagesContainer) return;
+
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'message warning-message';
+        warningDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-bubble warning-bubble">
+                    ⚠️ ${this.escapeHtml(message)}
+                </div>
+            </div>
+        `;
+
+        messagesContainer.appendChild(warningDiv);
+        this.scrollToBottom();
+
+        // 5秒后自动移除
+        setTimeout(() => {
+            if (warningDiv.parentNode) {
+                warningDiv.parentNode.removeChild(warningDiv);
+            }
+        }, 5000);
     }
 
     /**
@@ -1697,6 +1911,11 @@ class OpenClawChatWidget {
     appendMessage(role, content, scroll = true) {
         const { messagesContainer } = this.elements;
 
+        if (!messagesContainer) {
+            console.error('❌ messagesContainer not found!');
+            return;
+        }
+
         const messageEl = document.createElement('div');
         messageEl.className = `message ${role}`;
 
@@ -1707,8 +1926,8 @@ class OpenClawChatWidget {
         console.log('🎨 appendMessage called:', {
             role,
             contentType: typeof content,
+            contentLength: content.length,
             contentPreview: typeof content === 'string' ? content.substring(0, 50) : JSON.stringify(content).substring(0, 100),
-            displayContentPreview: displayContent.substring(0, 50),
             totalMessages: messagesContainer.children.length
         });
 
@@ -1725,6 +1944,8 @@ class OpenClawChatWidget {
         console.log('✅ Message appended. Total messages in DOM:', messagesContainer.querySelectorAll('.message').length);
 
         if (scroll) {
+            // 强制浏览器立即渲染，避免批处理
+            messageEl.offsetHeight; // 触发 reflow
             this.scrollToBottom();
         }
     }
@@ -2071,7 +2292,7 @@ class OpenClawChatWidget {
         for (const file of files) {
             // 检查文件大小
             if (file.size > this.maxFileSize) {
-                this.showError(`文件 "${file.name}" 太大（最大 10MB）`);
+                this.showError(`文件 "${file.name}" 太大（最大 100KB）。目前仅支持小型文本文件。`);
                 continue;
             }
 
