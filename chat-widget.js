@@ -1509,9 +1509,35 @@ class OpenClawChatWidget {
     /**
      * 发送消息
      */
-    async sendMessage() {
-        const { input } = this.elements;
-        const message = input.value.trim();
+    async sendMessage(message) {
+        // 如果没有传入消息参数，从输入框获取
+        if (typeof message !== 'string') {
+            const { input } = this.elements;
+            message = input.value.trim();
+        }
+
+        // 如果有文件附件，附加到消息中
+        if (this.uploadedFiles.length > 0) {
+            message = message || '请帮我分析这些文件';
+
+            let fileMessage = message;
+
+            if (this.uploadedFiles.length === 1) {
+                const file = this.uploadedFiles[0];
+                fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
+            } else {
+                fileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
+                this.uploadedFiles.forEach((file, index) => {
+                    fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
+                });
+            }
+
+            // 清空已上传文件
+            this.uploadedFiles = [];
+            this.renderFileList();
+
+            message = fileMessage;
+        }
 
         if (!message) return;
         if (!this.connected) {
@@ -2158,74 +2184,6 @@ class OpenClawChatWidget {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-
-    /**
-     * 发送消息（重写以支持文件）
-     */
-    async sendMessage(message) {
-        if (typeof message !== 'string') {
-            message = this.elements.input.value.trim();
-        }
-
-        if (!message && this.uploadedFiles.length === 0) {
-            return;
-        }
-
-        // 如果有文件，附加到消息中
-        if (this.uploadedFiles.length > 0) {
-            message = message || '请帮我分析这些文件';
-
-            let fileMessage = message;
-
-            if (this.uploadedFiles.length === 1) {
-                const file = this.uploadedFiles[0];
-                fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
-            } else {
-                fileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
-                this.uploadedFiles.forEach((file, index) => {
-                    fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
-                });
-            }
-
-            // 清空已上传文件
-            this.uploadedFiles = [];
-            this.renderFileList();
-
-            message = fileMessage;
-        }
-
-        // 清空输入框
-        this.elements.input.value = '';
-        this.updateSendButton();
-        this.autoResizeInput();
-
-        // 清空已处理消息记录
-        this.processedMessages.clear();
-
-        // 显示用户消息
-        this.appendMessage('user', message);
-        this.emit('message', { role: 'user', message });
-
-        // 显示正在输入指示器
-        this.showTypingIndicator();
-
-        // 发送到 OpenClaw Gateway
-        try {
-            const response = await this.sendRequest('chat', {
-                sessionKey: this.getSessionKey(),
-                message: message
-            });
-
-            this.hideTypingIndicator();
-
-            if (response.error) {
-                this.appendMessage('assistant', '❌ 错误: ' + response.error.message);
-            }
-        } catch (error) {
-            this.hideTypingIndicator();
-            this.appendMessage('assistant', '❌ 发送失败: ' + error.message);
-        }
     }
 }
 
