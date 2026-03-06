@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>简单 WebSocket 测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status.info {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #log {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid #ddd;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #2196f3;
+            background: #f9f9f9;
+        }
+        .log-entry.error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+        .log-entry.success {
+            border-left-color: #4caf50;
+            background: #e8f5e9;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 简单 WebSocket 连接测试</h1>
+
+    <div id="status" class="status info">状态: 未连接</div>
+
+    <div>
+        <button id="connectBtn" onclick="testConnect()">测试连接</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+
+    <h3>连接日志:</h3>
+    <div id="log"></div>
+
+    <script>
+        const GATEWAY_URL = 'ws://localhost:18789';
+        const TOKEN = '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5';
+        let ws = null;
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = '状态: ' + message;
+            statusEl.className = 'status ' + type;
+        }
+
+        function addLog(message, type = '') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            entry.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function testConnect() {
+            clearLog();
+            addLog('开始测试 WebSocket 连接...');
+
+            // 检查浏览器支持
+            if (!window.WebSocket) {
+                updateStatus('浏览器不支持 WebSocket', 'error');
+                addLog('❌ 浏览器不支持 WebSocket', 'error');
+                return;
+            }
+            addLog('✅ 浏览器支持 WebSocket');
+
+            // 尝试连接
+            addLog('正在连接到: ' + GATEWAY_URL);
+            updateStatus('连接中...', 'info');
+
+            try {
+                ws = new WebSocket(GATEWAY_URL);
+
+                ws.onopen = function() {
+                    addLog('✅ WebSocket 连接成功！', 'success');
+                    updateStatus('已连接', 'success');
+                    addLog('准备发送认证消息...');
+
+                    // 发送认证消息
+                    const authMsg = {
+                        type: 'req',
+                        id: 'test-' + Date.now(),
+                        method: 'connect',
+                        params: {
+                            minProtocol: 3,
+                            maxProtocol: 3,
+                            client: {
+                                id: 'test-client',
+                                mode: 'test'
+                            },
+                            auth: { token: TOKEN },
+                            scopes: ['operator.write']
+                        }
+                    };
+
+                    addLog('发送认证消息...');
+                    ws.send(JSON.stringify(authMsg));
+                };
+
+                ws.onmessage = function(event) {
+                    addLog('📥 收到消息: ' + event.data.substring(0, 200) + '...', 'success');
+
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.event === 'connect.challenge') {
+                            addLog('🔐 收到 challenge: ' + msg.payload?.nonce?.substring(0, 10) + '...');
+                        } else if (msg.event === 'connect.ok') {
+                            addLog('✅ 认证成功！', 'success');
+                        } else if (msg.error) {
+                            addLog('❌ 错误: ' + msg.error, 'error');
+                        }
+                    } catch (e) {
+                        addLog('解析消息失败: ' + e.message, 'error');
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    addLog('❌ WebSocket 错误', 'error');
+                    updateStatus('连接错误', 'error');
+
+                    // 显示详细错误信息
+                    console.error('WebSocket error:', error);
+                    addLog('请查看浏览器控制台 (F12) 获取详细错误信息', 'error');
+                };
+
+                ws.onclose = function(event) {
+                    addLog('🔌 连接已关闭 - code: ' + event.code + ', reason: ' + event.reason);
+                    updateStatus('已断开', 'info');
+                };
+
+                // 10秒超时
+                setTimeout(function() {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        addLog('⏱️ 连接超时 (10秒)', 'error');
+                        updateStatus('连接超时', 'error');
+                        ws.close();
+                    }
+                }, 10000);
+
+            } catch (e) {
+                addLog('❌ 创建 WebSocket 失败: ' + e.message, 'error');
+                updateStatus('连接失败', 'error');
+            }
+        }
+
+        // 页面加载完成
+        window.onload = function() {
+            addLog('页面已加载');
+            addLog('点击 "测试连接" 按钮开始测试');
+            addLog('如果连接失败，请按 F12 查看浏览器控制台');
+        };
+    </script>
+</body>
+</html>

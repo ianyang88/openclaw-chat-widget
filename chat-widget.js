@@ -863,6 +863,8 @@ class OpenClawChatWidget {
         this.messageId = 0;
         this.pendingRequests = new Map();
         this.currentRunId = null;
+        this.processedMessages = new Set(); // 跟踪已处理的消息
+        this.runIdTimeout = null;
 
         // 事件监听器
         this.eventListeners = new Map();
@@ -1416,21 +1418,68 @@ class OpenClawChatWidget {
      */
     handleChatEvent(params) {
         const { state, message, runId, seq } = params;
-        console.log('Chat event:', { state, message, runId, seq });
+        console.log('📨 Chat event:', { state, runId, seq, hasMessage: !!message });
+
+        // 创建消息唯一标识符
+        const messageKey = runId && seq !== undefined ? `${runId}:${seq}` : null;
+        console.log('🔑 Message key:', messageKey);
 
         if (state === 'final' && message) {
+            console.log('✅ Processing FINAL message');
+
+            // 检查是否已处理过此消息（去重）
+            if (messageKey && this.processedMessages.has(messageKey)) {
+                console.log('⚠️ Skipping duplicate message:', messageKey);
+                return;
+            }
+
+            // 标记消息已处理
+            if (messageKey) {
+                this.processedMessages.add(messageKey);
+                console.log('➕ Added to processed:', messageKey);
+            }
+
+            // 显示消息
+            console.log('💬 Appending FINAL message to UI...');
             this.appendMessage('assistant', message);
             this.hideTypingIndicator();
-            this.currentRunId = null;
-            this.emit('message', { role: 'assistant', message, runId });
+            this.emit('message', { role: 'assistant', message, runId, seq });
+
+            // 延迟清空 currentRunId，允许后续消息到达（可能有其他笑话）
+            if (!this.runIdTimeout) {
+                console.log('⏰ Setting runId timeout (5000ms) - waiting for more messages');
+                this.runIdTimeout = setTimeout(() => {
+                    console.log('🔔 Timeout: Clearing currentRunId and processed messages');
+                    this.currentRunId = null;
+                    this.runIdTimeout = null;
+                    // 不要清空 processedMessages，保留去重记录
+                }, 5000); // 增加到5秒，给更多时间等待后续消息
+            } else {
+                console.log('⏳ Timeout already exists, not setting new one');
+            }
+        } else if (state === 'delta' && message) {
+            console.log('🔄 Ignoring DELTA message (streaming update, waiting for final)');
+            // delta 消息是流式传输的中间状态，忽略它们
+            // 只显示 final 消息
         } else if (state === 'started' || state === 'in_flight') {
-            // 消息处理开始，保持显示 typing indicator
+            console.log('🔄 Processing STARTED/IN_FLIGHT state');
             this.currentRunId = runId;
+
+            // 取消超时定时器
+            if (this.runIdTimeout) {
+                console.log('❌ Cancelling runId timeout');
+                clearTimeout(this.runIdTimeout);
+                this.runIdTimeout = null;
+            }
         } else if (state === 'error') {
+            console.log('❌ Processing ERROR state');
             this.appendMessage('assistant', '抱歉，发生了错误: ' + (params.errorMessage || '未知错误'));
             this.hideTypingIndicator();
             this.currentRunId = null;
         }
+
+        console.log('📊 Current state: currentRunId =', this.currentRunId, ', runIdTimeout =', !!this.runIdTimeout);
+        console.log('---\n');
     }
 
     /**
@@ -1468,6 +1517,9 @@ class OpenClawChatWidget {
         input.value = '';
         this.updateSendButton();
         this.autoResizeInput();
+
+        // 清空已处理消息记录
+        this.processedMessages.clear();
 
         // 显示用户消息
         this.appendMessage('user', message);
@@ -1609,6 +1661,15 @@ class OpenClawChatWidget {
         const avatar = role === 'assistant' ? '🦀' : '👤';
         const displayContent = this.formatMessage(content);
 
+        // 调试日志
+        console.log('🎨 appendMessage called:', {
+            role,
+            contentType: typeof content,
+            contentPreview: typeof content === 'string' ? content.substring(0, 50) : JSON.stringify(content).substring(0, 100),
+            displayContentPreview: displayContent.substring(0, 50),
+            totalMessages: messagesContainer.children.length
+        });
+
         messageEl.innerHTML = `
             <div class="message-avatar">${avatar}</div>
             <div class="message-content">
@@ -1619,6 +1680,8 @@ class OpenClawChatWidget {
 
         messagesContainer.appendChild(messageEl);
 
+        console.log('✅ Message appended. Total messages in DOM:', messagesContainer.querySelectorAll('.message').length);
+
         if (scroll) {
             this.scrollToBottom();
         }
@@ -1628,20 +1691,44 @@ class OpenClawChatWidget {
      * 格式化消息内容
      */
     formatMessage(content) {
-        if (typeof content === 'string') {
-            return this.escapeHtml(content);
-        }
+        let text = '';
 
-        if (Array.isArray(content?.content)) {
-            return content.content.map(block => {
+        // 提取文本内容
+        if (typeof content === 'string') {
+            text = content;
+        } else if (Array.isArray(content?.content)) {
+            text = content.content.map(block => {
                 if (block.type === 'text') {
-                    return this.escapeHtml(block.text || '');
+                    return block.text || '';
                 }
                 return '';
             }).join('');
+        } else {
+            text = JSON.stringify(content);
         }
 
-        return this.escapeHtml(JSON.stringify(content));
+        // 渲染 Markdown
+        if (typeof marked !== 'undefined') {
+            try {
+                const html = marked.parse(text);
+                // 高亮代码块
+                if (typeof hljs !== 'undefined') {
+                    setTimeout(() => {
+                        const codeBlocks = document.querySelectorAll('.message-bubble pre code');
+                        codeBlocks.forEach((block) => {
+                            hljs.highlightElement(block);
+                        });
+                    }, 0);
+                }
+                return html;
+            } catch (e) {
+                console.error('Markdown parse error:', e);
+                return this.escapeHtml(text);
+            }
+        }
+
+        // 如果 marked 不可用，返回纯文本
+        return this.escapeHtml(text);
     }
 
     /**

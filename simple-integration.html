@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>妙笔助手 - 智能写作助手</title>
+    <link rel="stylesheet" href="chat-widget.css">
+
+    <!-- Markdown 解析库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 代码高亮库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #1e293b;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .user-info-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-info-card h2 {
+            color: #1e293b;
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-info-card h2::before {
+            content: '👤';
+            font-size: 20px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .info-item {
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: #1e293b;
+            font-weight: 500;
+            word-break: break-all;
+        }
+
+        .info-value code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .error-message h2 {
+            color: #dc2626;
+            margin-bottom: 12px;
+        }
+
+        .error-message p {
+            color: #7f1d1d;
+            margin-bottom: 16px;
+        }
+
+        .error-message code {
+            background: #fecaca;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .integration-guide {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .integration-guide h3 {
+            color: #1e293b;
+            font-size: 16px;
+            margin-bottom: 16px;
+        }
+
+        .integration-guide pre {
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid #e2e8f0;
+        }
+
+        .integration-guide code {
+            color: #334155;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+        }
+
+        @media (max-width: 768px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✍️ 妙笔助手</h1>
+            <div class="subtitle">智能写作助手 - 简单集成模式</div>
+        </div>
+
+        <div class="error-message" id="errorMessage" style="display: none;">
+            <h2>❌ 缺少用户 ID</h2>
+            <p>请在 URL 中添加用户 ID 参数：</p>
+            <code>?id=用户ID</code>
+            <br><br>
+            <p style="color: #991b1b; font-size: 14px;">
+                示例：simple-integration.html?id=user123
+            </p>
+        </div>
+
+        <div class="user-info-card" id="userInfoCard" style="display: none;">
+            <h2>当前用户</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">用户 ID</div>
+                    <div class="info-value" id="userId">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Session Key</div>
+                    <div class="info-value"><code id="sessionKey">-</code></div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">连接状态</div>
+                    <div class="info-value" id="connectionStatus">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="chat-widget"></div>
+
+        <div class="integration-guide" id="integrationGuide">
+            <h3>📖 妙笔助手集成指南</h3>
+            <p style="color: #64748b; margin-bottom: 12px;">
+                妙笔助手集成时，只需在 URL 中添加 <code>id</code> 参数即可：
+            </p>
+            <pre><code>&lt;iframe src="http://8.148.244.33:8080/simple-integration.html?id=用户ID"&gt;&lt;/iframe&gt;
+
+或者：
+
+&lt;a href="http://8.148.244.33:8080/simple-integration.html?id=用户ID"&gt;打开聊天&lt;/a&gt;</code></pre>
+
+            <p style="color: #64748b; margin: 16px 0 12px;">
+                <strong>用户隔离说明：</strong>
+            </p>
+            <ul style="color: #475569; font-size: 14px; line-height: 1.8; padding-left: 20px;">
+                <li>每个用户 ID 会生成独立的 Session Key</li>
+                <li>不同用户的聊天历史完全隔离</li>
+                <li>用户 ID 建议使用唯一标识符（如：工号、用户名等）</li>
+                <li>Session Key 格式：<code>agent:main:direct:url:{userId}</code></li>
+            </ul>
+
+            <p style="color: #64748b; margin: 16px 0 12px;">
+                <strong>示例：</strong>
+            </p>
+            <pre><code>用户 A: simple-integration.html?id=zhangsan
+用户 B: simple-integration.html?id=lisi
+用户 C: simple-integration.html?id=12345</code></pre>
+        </div>
+    </div>
+
+    <script src="chat-widget.js"></script>
+    <script>
+        // ========================================
+        // 从 URL 获取用户 ID
+        // ========================================
+
+        function getUserIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('id');
+        }
+
+        // ========================================
+        // 初始化聊天组件
+        // ========================================
+
+        let chatWidget = null;
+
+        function initChatWidget(userId) {
+            // Gateway token（从配置文件中获取）
+            const gatewayToken = '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5';
+
+            // 使用 userId 生成唯一的 sessionKey
+            const sessionKey = `agent:main:direct:url:${userId}`;
+
+            chatWidget = new OpenClawChatWidget({
+                container: '#chat-widget',
+                gatewayUrl: 'ws://8.148.244.33:18789',
+                token: gatewayToken,  // Gateway 认证 token
+                sessionKey: sessionKey  // 用户专属的 sessionKey
+            });
+
+            // 监听事件
+            chatWidget.on('authenticated', () => {
+                console.log('✅ 认证成功, userId:', userId);
+                updateConnectionStatus('已连接');
+            });
+
+            chatWidget.on('connected', () => {
+                console.log('🔌 WebSocket 已连接');
+                updateConnectionStatus('已连接');
+            });
+
+            chatWidget.on('disconnected', () => {
+                console.log('🔌 WebSocket 已断开');
+                updateConnectionStatus('已断开');
+            });
+
+            chatWidget.on('error', (error) => {
+                console.error('❌ 错误:', error);
+            });
+
+            return chatWidget;
+        }
+
+        // ========================================
+        // UI 更新
+        // ========================================
+
+        function updateUserInfo(userId, sessionKey) {
+            document.getElementById('userId').textContent = userId;
+            document.getElementById('sessionKey').textContent = sessionKey;
+        }
+
+        function updateConnectionStatus(status) {
+            document.getElementById('connectionStatus').textContent = status;
+        }
+
+        // ========================================
+        // 页面加载
+        // ========================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const userId = getUserIdFromURL();
+
+            if (!userId) {
+                // 没有 ID 参数，显示错误
+                document.getElementById('errorMessage').style.display = 'block';
+                document.getElementById('userInfoCard').style.display = 'none';
+                document.getElementById('integrationGuide').style.display = 'block';
+                return;
+            }
+
+            // 有 ID 参数，显示用户信息并初始化
+            console.log('🚀 用户 ID:', userId);
+
+            const sessionKey = `agent:main:direct:url:${userId}`;
+
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('userInfoCard').style.display = 'block';
+            document.getElementById('integrationGuide').style.display = 'none';
+
+            updateUserInfo(userId, sessionKey);
+            initChatWidget(userId);
+        });
+
+        // ========================================
+        // 调试命令
+        // ========================================
+
+        console.log(`
+🔧 OpenClaw 简单集成模式 - 调试命令
+
+// 查看当前用户 ID
+getUserIdFromURL()
+
+// 查看当前 Session Key
+chatWidget.baseSessionKey
+
+// 查看认证状态
+chatWidget.connected
+
+// 查看使用的 token
+chatWidget.token
+
+// 测试不同用户
+// 在 URL 中修改 ?id=xxx 参数
+        `);
+    </script>
+</body>
+</html>
