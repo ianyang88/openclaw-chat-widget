@@ -1556,47 +1556,39 @@ class OpenClawChatWidget {
         // 🔒 SessionKey 隔离检查：只处理属于当前用户的消息
         const currentSessionKey = this.getSessionKey();
 
+        console.log('🔍 Chat event received:', {
+            state,
+            status,
+            runId,
+            seq,
+            hasMessage: !!message,
+            eventSessionKey,
+            currentSessionKey,
+            ownedRunIds: runId ? Array.from(this.ownedRunIds) : 'N/A'
+        });
+
         // 检查1: 如果事件中包含 sessionKey，直接过滤
         if (eventSessionKey && eventSessionKey !== currentSessionKey) {
-            console.log('🚫 Ignoring message from different session:', {
+            console.log('🚫 [Filter-1] Ignoring message from different session:', {
                 eventSessionKey,
-                currentSessionKey,
-                reason: 'SessionKey mismatch'
+                currentSessionKey
             });
             return;
         }
 
         // 检查2: 使用 runId 过滤（只处理属于当前用户的 runId）
-        if (runId && !this.ownedRunIds.has(runId)) {
-            console.log('🚫 Ignoring message from different user (runId not owned):', {
+        // 注意：只在有 runId 且不是第一个 'started' 状态时才检查
+        // 因为 'started' 状态会在 sendMessage 中记录 runId
+        if (runId && this.ownedRunIds.size > 0 && !this.ownedRunIds.has(runId)) {
+            // 如果有已拥有的 runId，但当前 runId 不在其中，说明是其他用户的消息
+            console.log('🚫 [Filter-2] Ignoring message from different user (runId not owned):', {
                 runId,
-                ownedRunIds: Array.from(this.ownedRunIds),
-                reason: 'runId does not belong to current user'
+                ownedRunIds: Array.from(this.ownedRunIds)
             });
             return;
         }
 
-        console.log('✅ Processing message for current user:', {
-            state,
-            status,
-            runId,
-            seq,
-            eventSessionKey: eventSessionKey || 'not provided',
-            currentSessionKey
-        });
-
-        console.log('📨 Chat event:', {
-            state,
-            status,
-            runId,
-            seq,
-            seqType: typeof seq,
-            hasMessage: !!message,
-            messageType: typeof message,
-            messageKeys: message ? Object.keys(message) : null,
-            messagePreview: message ? JSON.stringify(message).substring(0, 100) : null,
-            sessionKey: eventSessionKey || currentSessionKey
-        });
+        console.log('✅ [PASS] Processing message for current user');
 
         // 处理 ok 状态（run 完成）
         if (status === 'ok') {
