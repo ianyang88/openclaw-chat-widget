@@ -2259,11 +2259,16 @@ class OpenClawChatWidget {
 
     /**
      * 获取当前 sessionKey
+     *
+     * 直接返回 baseSessionKey，确保时间戳和用户 ID 不丢失。
+     * 这样每个用户的会话才能真正隔离。
+     *
+     * 注意：不再调用 userManager.getSessionKey()，因为该方法会重新生成
+     * sessionKey，导致时间戳丢失，进而导致所有用户共享相同的会话。
      */
     getSessionKey() {
-        if (this.userManager && this.userManager.hasUser()) {
-            return this.userManager.getSessionKey();
-        }
+        // 直接返回原始的 sessionKey，确保时间戳不丢失
+        // 这样每个用户的会话才能真正隔离
         return this.baseSessionKey;
     }
 
