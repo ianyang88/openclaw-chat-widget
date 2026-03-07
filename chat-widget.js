@@ -864,6 +864,7 @@ class OpenClawChatWidget {
         this.pendingRequests = new Map();
         this.currentRunId = null;
         this.processedMessages = new Set(); // 跟踪已处理的消息
+        this.ownedRunIds = new Set(); // 跟踪属于当前用户的 runId（用于隔离）
         this.runIdTimeout = null; // 30秒警告定时器
         this.runIdCleanupTimeout = null; // 5秒清空定时器
 
@@ -1550,7 +1551,40 @@ class OpenClawChatWidget {
      * 处理聊天事件
      */
     handleChatEvent(params) {
-        const { state, message, runId, seq, status } = params;
+        const { state, message, runId, seq, status, sessionKey: eventSessionKey } = params;
+
+        // 🔒 SessionKey 隔离检查：只处理属于当前用户的消息
+        const currentSessionKey = this.getSessionKey();
+
+        // 检查1: 如果事件中包含 sessionKey，直接过滤
+        if (eventSessionKey && eventSessionKey !== currentSessionKey) {
+            console.log('🚫 Ignoring message from different session:', {
+                eventSessionKey,
+                currentSessionKey,
+                reason: 'SessionKey mismatch'
+            });
+            return;
+        }
+
+        // 检查2: 使用 runId 过滤（只处理属于当前用户的 runId）
+        if (runId && !this.ownedRunIds.has(runId)) {
+            console.log('🚫 Ignoring message from different user (runId not owned):', {
+                runId,
+                ownedRunIds: Array.from(this.ownedRunIds),
+                reason: 'runId does not belong to current user'
+            });
+            return;
+        }
+
+        console.log('✅ Processing message for current user:', {
+            state,
+            status,
+            runId,
+            seq,
+            eventSessionKey: eventSessionKey || 'not provided',
+            currentSessionKey
+        });
+
         console.log('📨 Chat event:', {
             state,
             status,
@@ -1560,12 +1594,17 @@ class OpenClawChatWidget {
             hasMessage: !!message,
             messageType: typeof message,
             messageKeys: message ? Object.keys(message) : null,
-            messagePreview: message ? JSON.stringify(message).substring(0, 100) : null
+            messagePreview: message ? JSON.stringify(message).substring(0, 100) : null,
+            sessionKey: eventSessionKey || currentSessionKey
         });
 
         // 处理 ok 状态（run 完成）
         if (status === 'ok') {
             console.log('✅ Run completed with status=ok');
+            if (runId) {
+                this.ownedRunIds.delete(runId);
+                console.log('🗑️ 从 ownedRunIds 中移除:', runId);
+            }
             this.currentRunId = null;
             this.clearRunIdTimeout();
             this.updateCancelButton();
@@ -1780,6 +1819,12 @@ class OpenClawChatWidget {
 
             if (response.result) {
                 const { runId, status } = response.result;
+
+                // 🔒 记录属于当前用户的 runId（用于消息隔离）
+                if (runId) {
+                    this.ownedRunIds.add(runId);
+                    console.log('🔐 记录属于当前用户的 runId:', runId);
+                }
 
                 if (status === 'started') {
                     this.currentRunId = runId;
