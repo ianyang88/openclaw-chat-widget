@@ -265,8 +265,10 @@
             const gatewayToken = '9aaa42a43ece4943693100cdbdb68281bfe3c3f43bbff5c5';
 
             // 使用 userId + 时间戳生成唯一的 sessionKey（每次刷新都清空上下文）
+            // 关键修复：为每个用户使用不同的 agent 名称，确保会话隔离
+            // OpenClaw 将 agent 名称作为 session 的唯一标识符
             const timestamp = Date.now();
-            const sessionKey = `agent:main:direct:url:${userId}:${timestamp}`;
+            const sessionKey = `agent:${userId}:direct:url:${userId}:${timestamp}`;
 
             chatWidget = new OpenClawChatWidget({
                 container: '#chat-widget',
@@ -281,25 +283,13 @@
                 }
             });
 
-            // 手动设置 userManager，确保 sessionKey 正确
-            if (chatWidget.userManager) {
-                // 修改 baseSessionKey 以包含 'direct' 部分
-                chatWidget.userManager.baseSessionKey = 'agent:main:direct';
-                // 设置 userPrefix 为 'url' 以匹配 sessionKey 格式
-                chatWidget.userManager.userPrefix = 'url';
-                chatWidget.userManager.setUser(userId, {
-                    id: userId,
-                    username: userId,
-                    name: userId
-                });
-                console.log('✅ UserManager 设置完成:', {
-                    userId: userId,
-                    baseSessionKey: chatWidget.userManager.baseSessionKey,
-                    userPrefix: chatWidget.userManager.userPrefix,
-                    generatedSessionKey: chatWidget.userManager.getSessionKey(),
-                    expectedSessionKey: sessionKey
-                });
-            }
+            // 注意：不再手动设置 userManager，因为现在使用不同的 agent 名称实现隔离
+            // 每个 user 都有自己独立的 agent（agent:userA, agent:userB, etc.）
+            console.log('✅ ChatWidget 初始化完成:', {
+                userId: userId,
+                sessionKey: sessionKey,
+                baseSessionKey: chatWidget.baseSessionKey
+            });
 
             // 监听事件
             chatWidget.on('authenticated', () => {
