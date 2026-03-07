@@ -981,7 +981,7 @@ class OpenClawChatWidget {
                 <!-- 登录界面 -->
                 <div class="login-screen" style="display: none;">
                     <div class="login-container">
-                        <div class="login-avatar">🦀</div>
+                        <div class="login-avatar">🦞</div>
                         <h2 class="login-title">妙笔助手</h2>
                         <p class="login-description">登录后开始对话</p>
 
@@ -998,7 +998,7 @@ class OpenClawChatWidget {
                 <div class="chat-container">
                     <div class="chat-header">
                         <div class="chat-header-left">
-                            <div class="chat-avatar">🦀</div>
+                            <div class="chat-avatar">🦞</div>
                             <div class="chat-title">
                                 <h2>妙笔助手</h2>
                                 <div class="chat-status">
@@ -1021,7 +1021,7 @@ class OpenClawChatWidget {
                     <div class="chat-messages">
                         <!-- 欢迎消息 -->
                         <div class="message assistant">
-                            <div class="message-avatar">🦀</div>
+                            <div class="message-avatar">🦞</div>
                             <div class="message-content">
                                 <div class="message-bubble">
                                     你好！我是妙笔助手。有什么可以帮助你的吗？
@@ -1493,7 +1493,7 @@ class OpenClawChatWidget {
             messageEl = document.createElement('div');
             messageEl.className = 'message assistant streaming';
             messageEl.innerHTML = `
-                <div class="message-avatar">🦀</div>
+                <div class="message-avatar">🦞</div>
                 <div class="message-content">
                     <div class="message-bubble streaming-bubble">
                         <span class="streaming-indicator">✍️</span>
@@ -1945,7 +1945,7 @@ class OpenClawChatWidget {
         const messageEl = document.createElement('div');
         messageEl.className = `message ${role}`;
 
-        const avatar = role === 'assistant' ? '🦀' : '👤';
+        const avatar = role === 'assistant' ? '🦞' : '👤';
         const displayContent = this.formatMessage(content);
 
         // 调试日志
@@ -2051,7 +2051,7 @@ class OpenClawChatWidget {
             indicator = document.createElement('div');
             indicator.className = 'message assistant typing-message';
             indicator.innerHTML = `
-                <div class="message-avatar">🦀</div>
+                <div class="message-avatar">🦞</div>
                 <div class="message-content">
                     <div class="message-bubble">
                         <div class="typing-indicator">
