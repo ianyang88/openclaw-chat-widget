@@ -273,6 +273,7 @@
                 gatewayUrl: 'ws://8.148.244.33:18789',
                 token: gatewayToken,  // Gateway 认证 token
                 sessionKey: sessionKey,  // 用户专属的 sessionKey
+                fileServerUrl: 'http://8.148.244.33:3001',  // 文件服务器地址（公网 IP）
                 auth: { type: 'none' },  // 禁用认证管理器，直接使用 sessionKey
                 session: {
                     persist: false,  // 不持久化，每次从 URL 获取用户 ID

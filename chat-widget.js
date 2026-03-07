@@ -869,7 +869,10 @@ class OpenClawChatWidget {
 
         // 文件上传
         this.uploadedFiles = [];
-        this.maxFileSize = 100 * 1024; // 100KB (仅支持文本文件，防止超时)
+        this.maxFileSize = 10 * 1024 * 1024; // 10MB (云存储模式)
+        this.fileServerUrl = options.fileServerUrl || 'http://localhost:3000'; // 文件服务器地址
+        this.useFallbackMode = false; // 是否使用 Base64 降级模式
+        this.uploadStartTime = null; // 上传开始时间（用于计算剩余时间）
 
         // 流式消息管理
         this.streamingMessages = new Map(); // runId -> message element
@@ -1686,18 +1689,31 @@ class OpenClawChatWidget {
 
             if (this.uploadedFiles.length === 1) {
                 const file = this.uploadedFiles[0];
-                // 发送给服务器的消息（包含 base64）
-                fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
-                // 显示给用户的消息（不包含 base64）
-                displayFileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}`;
+
+                // 判断是云存储模式还是降级模式
+                if (file.fileUrl) {
+                    // 云存储模式：使用文件 URL
+                    fileMessage = `${message}\n\n📎 附件: ${file.fileName}\n📋 类型: ${file.mimeType}\n📦 大小: ${this.formatFileSize(file.fileSize)}\n🔗 下载链接: ${file.fileUrl}`;
+                    displayFileMessage = `${message}\n\n📎 附件: ${file.fileName}\n📋 类型: ${file.mimeType}\n📦 大小: ${this.formatFileSize(file.fileSize)}`;
+                } else {
+                    // 降级模式：使用 Base64
+                    fileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}\n📄 Base64 数据:\n${file.base64}`;
+                    displayFileMessage = `${message}\n\n📎 附件: ${file.name}\n📋 类型: ${file.type}\n📦 大小: ${this.formatFileSize(file.size)}`;
+                }
             } else {
-                // 发送给服务器的消息（包含 base64）
                 fileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
-                // 显示给用户的消息（不包含 base64）
                 displayFileMessage = `${message}\n\n📎 附件 (${this.uploadedFiles.length} 个文件):\n\n`;
+
                 this.uploadedFiles.forEach((file, index) => {
-                    fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
-                    displayFileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n\n`;
+                    if (file.fileUrl) {
+                        // 云存储模式
+                        fileMessage += `${index + 1}. ${file.fileName}\n   类型: ${file.mimeType}\n   大小: ${this.formatFileSize(file.fileSize)}\n   链接: ${file.fileUrl}\n\n`;
+                        displayFileMessage += `${index + 1}. ${file.fileName}\n   类型: ${file.mimeType}\n   大小: ${this.formatFileSize(file.fileSize)}\n\n`;
+                    } else {
+                        // 降级模式
+                        fileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n   Base64:\n   ${file.base64}\n\n`;
+                        displayFileMessage += `${index + 1}. ${file.name}\n   类型: ${file.type}\n   大小: ${this.formatFileSize(file.size)}\n\n`;
+                    }
                 });
             }
 
@@ -2337,24 +2353,35 @@ class OpenClawChatWidget {
     async handleFileSelect(files) {
         for (const file of files) {
             // 检查文件大小
-            if (file.size > this.maxFileSize) {
-                this.showError(`文件 "${file.name}" 太大（最大 100KB）。目前仅支持小型文本文件。`);
+            const maxSize = this.useFallbackMode ? 100 * 1024 : 10 * 1024 * 1024;
+            const maxSizeMB = this.useFallbackMode ? '100KB' : '10MB';
+
+            if (file.size > maxSize) {
+                this.showError(`文件 "${file.name}" 太大（最大 ${maxSizeMB}）`);
                 continue;
             }
 
             try {
-                const fileData = await this.fileToBase64(file);
-                this.uploadedFiles.push(fileData);
+                if (this.useFallbackMode) {
+                    // 降级模式：使用 Base64
+                    const fileData = await this.fileToBase64(file);
+                    this.uploadedFiles.push(fileData);
+                } else {
+                    // 正常模式：上传到服务器
+                    const fileData = await this.uploadFileToServer(file);
+                    this.uploadedFiles.push(fileData);
+                }
+
                 this.renderFileList();
             } catch (error) {
-                console.error('文件读取失败:', error);
-                this.showError(`文件 "${file.name}" 读取失败`);
+                console.error('文件上传失败:', error);
+                // 错误已在 uploadFileToServer 中处理
             }
         }
     }
 
     /**
-     * 将文件转换为 Base64
+     * 将文件转换为 Base64（降级模式使用）
      */
     fileToBase64(file) {
         return new Promise((resolve, reject) => {
@@ -2371,6 +2398,199 @@ class OpenClawChatWidget {
     }
 
     /**
+     * 上传文件到服务器（带进度显示）
+     * @param {File} file - 要上传的文件
+     * @returns {Promise<Object>} 文件元数据
+     */
+    uploadFileToServer(file) {
+        this.uploadStartTime = Date.now();
+        this.showUploadProgress(file.name);
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const formData = new FormData();
+
+            formData.append('file', file);
+            formData.append('userId', this.userManager ? this.userManager.getUserId() : 'default-user');
+            formData.append('sessionKey', this.getSessionKey());
+
+            // 上传进度
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const percentComplete = Math.round((e.loaded / e.total) * 100);
+                    const uploadedMB = (e.loaded / 1024 / 1024).toFixed(2);
+                    const totalMB = (e.total / 1024 / 1024).toFixed(2);
+
+                    this.updateUploadProgress({
+                        percent: percentComplete,
+                        uploaded: uploadedMB,
+                        total: totalMB,
+                        fileName: file.name
+                    });
+                }
+            });
+
+            // 上传完成
+            xhr.addEventListener('load', () => {
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.success) {
+                            this.hideUploadProgress();
+                            // 添加兼容字段，确保 renderFileList() 能正确处理
+                            const fileData = {
+                                ...response.data,
+                                // 添加兼容字段（支持旧的渲染逻辑）
+                                name: response.data.fileName || response.data.name,
+                                size: response.data.fileSize || response.data.size,
+                                type: response.data.mimeType || response.data.type
+                            };
+                            resolve(fileData);
+                        } else if (response.fallback) {
+                            // OSS 不可用，触发降级
+                            this.hideUploadProgress();
+                            this.triggerFallback(file);
+                        } else {
+                            this.hideUploadProgress();
+                            reject(new Error(response.error.message));
+                        }
+                    } catch (e) {
+                        this.hideUploadProgress();
+                        reject(e);
+                    }
+                } else {
+                    this.hideUploadProgress();
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            });
+
+            // 上传错误
+            xhr.addEventListener('error', () => {
+                this.hideUploadProgress();
+                this.triggerFallback(file);
+            });
+
+            // 发送请求
+            xhr.open('POST', `${this.fileServerUrl}/api/upload`);
+            xhr.send(formData);
+        });
+    }
+
+    /**
+     * 触发降级到 Base64 模式
+     * @param {File} file - 要上传的文件
+     */
+    async triggerFallback(file) {
+        // 显示降级提示
+        this.showWarning('云存储服务暂时不可用，使用备用上传方式（最大 100KB）');
+
+        // 切换到 Base64 模式
+        this.useFallbackMode = true;
+        this.maxFileSize = 100 * 1024; // 恢复 100KB 限制
+
+        // 检查文件大小
+        if (file.size > this.maxFileSize) {
+            this.showError(`文件过大。降级模式最大支持 100KB`);
+            return;
+        }
+
+        try {
+            // 使用现有的 Base64 逻辑
+            const fileData = await this.fileToBase64(file);
+            this.uploadedFiles.push(fileData);
+            this.renderFileList();
+        } catch (error) {
+            console.error('降级上传失败:', error);
+            this.showError('文件上传失败');
+        }
+    }
+
+    /**
+     * 显示上传进度条
+     * @param {string} fileName - 文件名
+     */
+    showUploadProgress(fileName) {
+        let progressContainer = this.elements.widget?.querySelector('#uploadProgressContainer');
+
+        // 如果不存在，创建进度条
+        if (!progressContainer) {
+            const inputArea = this.elements.widget?.querySelector('.input-area');
+            if (!inputArea) return;
+
+            progressContainer = document.createElement('div');
+            progressContainer.id = 'uploadProgressContainer';
+            progressContainer.className = 'upload-progress-container';
+            progressContainer.style.display = 'none';
+            inputArea.insertBefore(progressContainer, inputArea.firstChild);
+        }
+
+        // 重置进度
+        progressContainer.innerHTML = `
+            <div class="upload-progress-info">
+                <span class="upload-progress-filename" id="uploadProgressFilename">${fileName}</span>
+                <span class="upload-progress-percentage" id="uploadProgressPercentage">0%</span>
+            </div>
+            <div class="upload-progress-bar-bg">
+                <div class="upload-progress-bar-fill" id="uploadProgressBarFill" style="width: 0%"></div>
+            </div>
+            <div class="upload-progress-details">
+                <span id="uploadProgressSize">0 MB / 0 MB</span>
+                <span id="uploadProgressTime">预计剩余时间: 计算中...</span>
+            </div>
+        `;
+
+        progressContainer.style.display = 'block';
+    }
+
+    /**
+     * 更新上传进度
+     * @param {Object} progress - 进度信息
+     * @param {number} progress.percent - 百分比
+     * @param {string} progress.uploaded - 已上传大小（MB）
+     * @param {string} progress.total - 总大小（MB）
+     * @param {string} progress.fileName - 文件名
+     */
+    updateUploadProgress(progress) {
+        const { percent, uploaded, total, fileName } = progress;
+
+        // 更新进度条
+        const fill = document.getElementById('uploadProgressBarFill');
+        const percentage = document.getElementById('uploadProgressPercentage');
+        const size = document.getElementById('uploadProgressSize');
+        const filename = document.getElementById('uploadProgressFilename');
+        const timeElement = document.getElementById('uploadProgressTime');
+
+        if (fill) fill.style.width = `${percent}%`;
+        if (percentage) percentage.textContent = `${percent}%`;
+        if (size) size.textContent = `${uploaded} MB / ${total} MB`;
+        if (filename) filename.textContent = fileName;
+
+        // 计算预计剩余时间
+        if (this.uploadStartTime && timeElement) {
+            const elapsed = (Date.now() - this.uploadStartTime) / 1000;
+            const speed = parseFloat(uploaded) / elapsed;
+            const remaining = (parseFloat(total) - parseFloat(uploaded)) / speed;
+
+            if (remaining > 60) {
+                timeElement.textContent = `预计剩余时间: ${Math.ceil(remaining / 60)} 分钟`;
+            } else {
+                timeElement.textContent = `预计剩余时间: ${Math.ceil(remaining)} 秒`;
+            }
+        }
+    }
+
+    /**
+     * 隐藏上传进度条
+     */
+    hideUploadProgress() {
+        const progressContainer = this.elements.widget?.querySelector('#uploadProgressContainer');
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
+        this.uploadStartTime = null;
+    }
+
+    /**
      * 渲染文件列表
      */
     renderFileList() {
@@ -2382,18 +2602,25 @@ class OpenClawChatWidget {
             return;
         }
 
-        fileList.innerHTML = this.uploadedFiles.map((file, index) => `
+        fileList.innerHTML = this.uploadedFiles.map((file, index) => {
+            // 兼容两种文件数据格式：OSS 模式和 Base64 模式
+            const fileName = file.fileName || file.name || '未知文件';
+            const fileSize = file.fileSize || file.size || 0;
+            const mimeType = file.mimeType || file.type || 'application/octet-stream';
+
+            return `
             <div class="file-item">
                 <div class="file-item-info">
-                    <span class="file-item-icon">${this.getFileIcon(file.type)}</span>
+                    <span class="file-item-icon">${this.getFileIcon(mimeType)}</span>
                     <div class="file-item-details">
-                        <div class="file-item-name">${this.escapeHtml(file.name)}</div>
-                        <div class="file-item-size">${this.formatFileSize(file.size)}</div>
+                        <div class="file-item-name">${this.escapeHtml(fileName)}</div>
+                        <div class="file-item-size">${this.formatFileSize(fileSize)}</div>
                     </div>
                 </div>
                 <button class="file-item-remove" data-index="${index}" title="移除文件">✕</button>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
         // 添加删除按钮事件监听
         fileList.querySelectorAll('.file-item-remove').forEach(btn => {
