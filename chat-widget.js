@@ -1564,11 +1564,18 @@ class OpenClawChatWidget {
             hasMessage: !!message,
             eventSessionKey,
             currentSessionKey,
-            ownedRunIds: runId ? Array.from(this.ownedRunIds) : 'N/A'
+            ownedRunIds: runId ? Array.from(this.ownedRunIds) : 'N/A',
+            filterCheck: {
+                hasEventSessionKey: !!eventSessionKey,
+                sessionKeyMatch: eventSessionKey?.toLowerCase() === currentSessionKey.toLowerCase(),
+                hasRunId: !!runId,
+                ownedRunIdsSize: this.ownedRunIds.size,
+                runIdInOwned: runId ? this.ownedRunIds.has(runId) : 'N/A'
+            }
         });
 
-        // 检查1: 如果事件中包含 sessionKey，直接过滤
-        if (eventSessionKey && eventSessionKey !== currentSessionKey) {
+        // 检查1: 如果事件中包含 sessionKey，直接过滤（不区分大小写）
+        if (eventSessionKey && eventSessionKey.toLowerCase() !== currentSessionKey.toLowerCase()) {
             console.log('🚫 [Filter-1] Ignoring message from different session:', {
                 eventSessionKey,
                 currentSessionKey
@@ -1577,8 +1584,7 @@ class OpenClawChatWidget {
         }
 
         // 检查2: 使用 runId 过滤（只处理属于当前用户的 runId）
-        // 注意：只在有 runId 且不是第一个 'started' 状态时才检查
-        // 因为 'started' 状态会在 sendMessage 中记录 runId
+        // 注意：只在有已记录的 runId 时才检查其他 runId
         if (runId && this.ownedRunIds.size > 0 && !this.ownedRunIds.has(runId)) {
             // 如果有已拥有的 runId，但当前 runId 不在其中，说明是其他用户的消息
             console.log('🚫 [Filter-2] Ignoring message from different user (runId not owned):', {
