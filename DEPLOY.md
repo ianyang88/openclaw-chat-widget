@@ -35,8 +35,8 @@ nano .env
 
 填写以下信息：
 ```env
-OSS_ACCESS_KEY_ID=LTAI5tGq6Ab4BijBXgCLfYj5
-OSS_ACCESS_KEY_SECRET=uXRrRFLByQaDGKaPCuCQWdpN6YvI77
+OSS_ACCESS_KEY_ID=your_access_key_id
+OSS_ACCESS_KEY_SECRET=your_access_key_secret
 OSS_BUCKET=bot-openclaw-chat
 OSS_REGION=oss-cn-guangzhou
 ```

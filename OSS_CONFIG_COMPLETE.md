@@ -8,8 +8,8 @@
 ## ✅ 已成功配置
 
 ### 1. OSS 凭证配置
-- ✅ AccessKey ID: `LTAI5tGq6Ab4BijBXgCLfYj5`
-- ✅ AccessKey Secret: `uXRrRFLByQaDGKaPCuCQWdpN6YvI77` (已安全存储)
+- ✅ AccessKey ID: `your_access_key_id`
+- ✅ AccessKey Secret: `your_access_key_secret` (已安全存储)
 - ✅ Bucket: `bot-openclaw-chat`
 - ✅ Region: `oss-cn-guangzhou`
 
